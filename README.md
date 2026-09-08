@@ -51,11 +51,55 @@ try Chrono.date("last friday")             // never today
 try Chrono.date("+2w")
 try Chrono.date("3d ago")                  // because a leading `-` is an option name to most parsers
 try Chrono.date("1772547000")              // seconds; 13 digits is milliseconds
+try Chrono.date("3pm")                     // a bare time means today
+try Chrono.date("9:30 am PST")             // and a trailing zone is honoured
 ```
 
 The relative grammar is ported from `AgendaKit`, where it was internal to a package
 that imports EventKit. Answering "what is 2w from now" should not need the calendar
 permission.
+
+## Naming a zone
+
+`Chrono.zone(_:)` takes a zone the way somebody writes one, not only as an IANA
+identifier:
+
+```swift
+try Chrono.zone("PST")        // America/Los_Angeles
+try Chrono.zone("AEST")       // Australia/Sydney — Foundation's table has no Australia
+try Chrono.zone("ET")         // America/New_York, as written in half of American email
+try Chrono.zone("Tokyo")      // Asia/Tokyo, matched on the city
+try Chrono.zone("new york")   // America/New_York
+try Chrono.zone("UTC+2")      // a fixed offset; "+05:30" and "GMT-5" too
+```
+
+The same names work on the end of a date, which is the point:
+
+```swift
+try Chrono.date("9:30 am PST")
+try Chrono.date("tomorrow 9am Tokyo")
+try Chrono.date("2026-09-03 14:30 Hong Kong")
+
+Chrono.describe(try Chrono.date("9:30 am PST"), in: .current).time
+```
+
+An abbreviation resolves to a **region**, not a fixed offset, so it carries that
+region's daylight saving:
+
+```swift
+try Chrono.date("2026-07-01 15:00 PST")   // 22:00Z — California is on PDT in July
+try Chrono.date("2026-01-15 15:00 PST")   // 23:00Z — and PST in January
+```
+
+That is what somebody writing "3pm PST" in July means. Reading it as a literal
+-8 would be an hour out for eight months of the year.
+
+Abbreviations are genuinely ambiguous and nothing here pretends otherwise:
+`IST` is India, not Ireland or Israel; `CST` is Chicago, not China; `MST` is
+Phoenix, which never leaves standard time. Those are Foundation's mappings and
+they are left alone — write the identifier or the city when it matters.
+
+A bare `+2` is not a zone, because `+2` is already a relative date here.
 
 ## The zone is explicit, and it matters
 

@@ -338,3 +338,115 @@ final class ParsingTests: XCTestCase {
         XCTAssertThrowsError(try Chrono.date("sometime soon"))
     }
 }
+
+// MARK: - Zones
+
+private let losAngeles = TimeZone(identifier: "America/Los_Angeles")!
+
+final class ZoneTests: XCTestCase {
+
+    func testAbbreviationsResolve() throws {
+        XCTAssertEqual(try Chrono.zone("PST").identifier, "America/Los_Angeles")
+        XCTAssertEqual(try Chrono.zone("pst").identifier, "America/Los_Angeles")
+        XCTAssertEqual(try Chrono.zone("JST").identifier, "Asia/Tokyo")
+    }
+
+    func testAbbreviationsFoundationOmits() throws {
+        // Foundation's table has no Australian entries at all, and none of the
+        // bare US ones people actually write.
+        XCTAssertNil(TimeZone(abbreviation: "AEST"))
+        XCTAssertEqual(try Chrono.zone("AEST").identifier, "Australia/Sydney")
+        XCTAssertEqual(try Chrono.zone("AWST").identifier, "Australia/Perth")
+        XCTAssertEqual(try Chrono.zone("ET").identifier, "America/New_York")
+        XCTAssertEqual(try Chrono.zone("PT").identifier, "America/Los_Angeles")
+    }
+
+    func testCitiesResolve() throws {
+        XCTAssertEqual(try Chrono.zone("Tokyo").identifier, "Asia/Tokyo")
+        XCTAssertEqual(try Chrono.zone("new york").identifier, "America/New_York")
+        XCTAssertEqual(try Chrono.zone("Europe/London").identifier, "Europe/London")
+    }
+
+    func testOffsetsResolve() throws {
+        XCTAssertEqual(try Chrono.zone("UTC+2").secondsFromGMT(), 7200)
+        XCTAssertEqual(try Chrono.zone("GMT-5").secondsFromGMT(), -18000)
+        XCTAssertEqual(try Chrono.zone("+05:30").secondsFromGMT(), 19800)
+        XCTAssertEqual(try Chrono.zone("+0530").secondsFromGMT(), 19800)
+    }
+
+    func testABareSignedNumberIsNotAZone() {
+        // "+2" is already a relative date here. If it resolved as UTC+2,
+        // "tomorrow +2" would silently change meaning.
+        XCTAssertNil(Chrono.resolveZone("+2"))
+        XCTAssertThrowsError(try Chrono.zone("Narnia"))
+    }
+
+    func testTrailingZoneIsHonouredWhenParsing() throws {
+        try Chrono.inZone(utc) {
+            let there = try Chrono.date("2026-09-03 14:30 Tokyo")
+            let explicit = try Chrono.date("2026-09-03T14:30:00+09:00")
+            XCTAssertEqual(there, explicit)
+        }
+    }
+
+    func testAnAbbreviationCarriesItsRegionsDaylightSaving() throws {
+        // The point of resolving "PST" to a region rather than a fixed -8:
+        // somebody writing "3pm PST" in July means 3pm in California, which
+        // is UTC-7 that month. A fixed offset would be an hour out all summer.
+        try Chrono.inZone(utc) {
+            XCTAssertEqual(Chrono.describe(try Chrono.date("2026-07-01 15:00 PST")).utc,
+                           "2026-07-01T22:00:00Z")
+            XCTAssertEqual(Chrono.describe(try Chrono.date("2026-01-15 15:00 PST")).utc,
+                           "2026-01-15T23:00:00Z")
+        }
+    }
+
+    func testAMultiWordCityIsNotTestedByItsLastWord() throws {
+        try Chrono.inZone(utc) {
+            let there = try Chrono.date("2026-09-03 14:30 Hong Kong")
+            XCTAssertEqual(there, try Chrono.date("2026-09-03T14:30:00+08:00"))
+        }
+    }
+
+    func testASpacedMeridiemParses() throws {
+        try Chrono.inZone(utc) {
+            XCTAssertEqual(try Chrono.date("tomorrow 9:30 am"),
+                           try Chrono.date("tomorrow 9:30am"))
+        }
+    }
+
+    func testABareTimeIsToday() throws {
+        try Chrono.inZone(tokyo) {
+            let parsed = try Chrono.date("3pm")
+            XCTAssertEqual(Chrono.describe(parsed).time, "15:00:00")
+            XCTAssertEqual(Chrono.describe(parsed).date,
+                           Chrono.describe(Date()).date)
+        }
+    }
+
+    func testABareTimeWithAZoneReadsOverThere() throws {
+        // The selection-bar case: highlight "9:30 am PST", see it locally.
+        try Chrono.inZone(london) {
+            let parsed = try Chrono.date("9:30 am PST")
+            XCTAssertEqual(Chrono.describe(parsed, in: losAngeles).time, "09:30:00")
+        }
+    }
+
+    func testDescribingInAnotherZoneLeavesTheAmbientZoneAlone() throws {
+        try Chrono.inZone(london) {
+            let noon = try Chrono.date("2026-09-03T12:00:00Z")
+            XCTAssertEqual(Chrono.describe(noon, in: tokyo).time, "21:00:00")
+            XCTAssertEqual(Chrono.timeZone, london)
+            XCTAssertEqual(Chrono.describe(noon).time, "13:00:00")
+        }
+    }
+
+    func testDayPhrasesAreNotMistakenForZones() throws {
+        // "friday" and "ago" have to survive the zone lookup untouched.
+        try Chrono.inZone(utc) {
+            XCTAssertNotNil(Chrono.relativeDate("next friday"))
+            XCTAssertNotNil(Chrono.relativeDate("3d ago"))
+            XCTAssertNotNil(Chrono.relativeDate("next monday 14:00"))
+        }
+    }
+}

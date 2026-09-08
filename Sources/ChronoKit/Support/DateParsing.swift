@@ -21,10 +21,19 @@ extension Chrono {
     /// ``Chrono/timeZone``. A trailing `Z` or an explicit offset overrides the
     /// zone and is honoured as written.
     ///
+    /// A trailing zone is honoured too, so `9:30 am PST`, `tomorrow 9am Tokyo`
+    /// and `2026-09-03 14:30 UTC+2` all read as that wall clock over there.
+    ///
     /// - Throws: ``ChronoError/badDate(_:)`` when nothing matches.
     public static func date(_ raw: String) throws -> Date {
         let text = raw.trimmingCharacters(in: .whitespaces)
         guard !text.isEmpty else { throw ChronoError.badDate(raw) }
+
+        // A trailing zone rewrites where the rest is read, not what it says,
+        // so it is peeled off and the remainder parsed over there.
+        if let (rest, zone) = splitZone(text) {
+            return try inZone(zone) { try date(rest) }
+        }
 
         // Relative phrases go first: they are unambiguous, and an ISO date can
         // never look like one.
@@ -78,16 +87,25 @@ extension Chrono {
     /// | `next monday` | the same, but always at least a week out |
     /// | `last monday` | the most recent one, today excluded |
     /// | `+2d`, `90m`, `2w ago` | an offset from now |
+    /// | `3pm`, `9:30 am` | that time today |
+    /// | any of the above `PST`, `Tokyo`, `UTC+2` | the same, read in that zone |
     ///
     /// - Note: A bare weekday resolves to *today* when today is that weekday.
     ///   Say `next monday` for the following week — guessing between the two
     ///   silently is how an agent books a meeting seven days from where the
     ///   user meant.
     public static func relativeDate(_ raw: String) -> Date? {
+        // "9:30 am" is how people write it and "9:30am" is what the time
+        // grammar reads, so the space in front of a meridiem is closed first.
         let text = raw.trimmingCharacters(in: .whitespaces).lowercased()
+            .replacingOccurrences(of: #"(\d)\s+(am|pm)\b"#, with: "$1$2", options: .regularExpression)
         guard !text.isEmpty else { return nil }
 
         if text == "now" { return Date() }
+
+        if let (rest, zone) = splitZone(text) {
+            return inZone(zone) { relativeDate(rest) }
+        }
 
         // "2d ago" exists because a leading `-` is read as an option name by
         // most argument parsers, making `--at -1w` unusable without `=`.
@@ -111,12 +129,34 @@ extension Chrono {
         return calendar.date(bySettingHour: time.hour, minute: time.minute, second: 0, of: day)
     }
 
+    /// Peels a trailing zone off `9am PST` or `2pm Hong Kong`.
+    ///
+    /// Tried longest first, so `Hong Kong` is never tested as `Kong`, and
+    /// never long enough to swallow the whole phrase — something has to be
+    /// left to read in that zone.
+    private static func splitZone(_ text: String) -> (rest: String, zone: TimeZone)? {
+        let words = text.split(separator: " ").map(String.init)
+        guard words.count > 1 else { return nil }
+
+        for length in stride(from: min(3, words.count - 1), through: 1, by: -1) {
+            let candidate = words.suffix(length).joined(separator: " ")
+            guard let zone = resolveZone(candidate) else { continue }
+            return (words.dropLast(length).joined(separator: " "), zone)
+        }
+        return nil
+    }
+
     /// Splits `"tomorrow 9am"` into its day and time halves.
     ///
     /// The time is recognised by shape rather than position, so `next monday
     /// 14:00` keeps its two-word day phrase intact.
     private static func splitDayAndTime(_ text: String) -> (day: String, time: String?) {
         let words = text.split(separator: " ").map(String.init)
+
+        // A bare time is about today. Refusing it would make "3pm PST" —
+        // which is most of what anybody wants a zone for — unreadable.
+        if words.count == 1, looksLikeTime(words[0]) { return ("today", words[0]) }
+
         guard words.count > 1, let last = words.last, looksLikeTime(last) else {
             return (text, nil)
         }
