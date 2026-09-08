@@ -36,7 +36,7 @@ extension Chrono {
     ///   read as minutes, matching `agenda`.
     /// - Throws: ``ChronoError/badDuration(_:)`` on anything else.
     public static func duration(_ raw: String) throws -> TimeInterval {
-        let text = raw.trimmingCharacters(in: .whitespaces).lowercased()
+        let text = spelledOut(raw)
         guard !text.isEmpty else { throw ChronoError.badDuration(raw) }
 
         if let bare = Double(text) {
@@ -51,6 +51,50 @@ extension Chrono {
         }
         throw ChronoError.badDuration(raw)
     }
+
+    /// Folds `two weeks` and `3 days` down to the compact `2w` and `3d`.
+    ///
+    /// Written out is how people type it, and `3 days` was previously a
+    /// *failure* rather than three days: it ends in "s", which is the suffix
+    /// for seconds, leaving "3 day" to parse as a number.
+    ///
+    /// Word by word rather than by substring, because "m" lives inside half
+    /// the words here and a careless replace turns "month" into "1onth".
+    private static func spelledOut(_ raw: String) -> String {
+        let words = raw.lowercased()
+            .trimmingCharacters(in: .whitespaces)
+            .split(separator: " ")
+
+        return words.reduce(into: "") { result, word in
+            let cleaned = word.trimmingCharacters(in: CharacterSet(charactersIn: ".,"))
+            if let number = numberWords[cleaned] {
+                result += String(number)
+            } else if let suffix = unitWords[cleaned] {
+                result += suffix
+            } else {
+                result += cleaned
+            }
+        }
+    }
+
+    /// Counts people write rather than type. "a week" is one week.
+    private static let numberWords: [String: Int] = [
+        "a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+        "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+        "eleven": 11, "twelve": 12,
+    ]
+
+    /// Unit names, mapped onto the compact suffixes above. Order does not
+    /// matter here the way it does for suffixes — these are whole words.
+    private static let unitWords: [String: String] = [
+        "second": "s", "seconds": "s", "sec": "s", "secs": "s",
+        "minute": "m", "minutes": "m", "min": "m", "mins": "m",
+        "hour": "h", "hours": "h", "hr": "h", "hrs": "h",
+        "day": "d", "days": "d",
+        "week": "w", "weeks": "w",
+        "month": "mo", "months": "mo",
+        "year": "y", "years": "y", "yr": "y", "yrs": "y",
+    ]
 
     /// Splits `2w`, `18mo`, `-3d` into a count and a unit, for CALENDAR
     /// arithmetic rather than a number of seconds.

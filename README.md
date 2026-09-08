@@ -59,6 +59,54 @@ The relative grammar is ported from `AgendaKit`, where it was internal to a pack
 that imports EventKit. Answering "what is 2w from now" should not need the calendar
 permission.
 
+## Three tiers, and none of them a model
+
+`Chrono.date(_:)` tries them in order, exact first:
+
+1. **This package's grammar** — `+2w`, `3 days ago`, `two weeks from now`,
+   `next friday`, ISO 8601, Unix timestamps. Exact, and the only tier that
+   reads the compact spellings.
+2. **Foundation's `NSDataDetector`** — the engine behind the dates iOS
+   underlines and offers to add to your calendar.
+3. Nothing. It throws.
+
+Tier 2 is why the phrase list does not have to be finished:
+
+```swift
+try Chrono.date("this sunday")
+try Chrono.date("a week on tuesday")
+try Chrono.date("the tuesday after next")
+try Chrono.date("el próximo domingo")      // and every language the OS ships
+try Chrono.date("nächsten Sonntag")
+```
+
+It is safe to ask last because it is conservative to a fault — `chapter 7`,
+`iPhone 15`, `version 3` and `100` all read as nothing, so junk never becomes a
+confident date.
+
+The two tiers are genuinely complementary rather than redundant. The detector
+reads none of `+2w`, `3 days ago` or `90m`; the grammar reads none of
+`this sunday` or `el próximo domingo`. Available separately as
+``Chrono/detect(_:)`` if you want the second without the first.
+
+**This is not a language model, and it should not be one.** The detector is
+instant, offline, free, already on the device and maintained by Apple in every
+language it ships. A trained model would be larger, slower, need data nobody
+has, and be wrong in less predictable ways.
+
+## Written out, or typed short
+
+```swift
+try Chrono.duration("3 days")        // and "two weeks", "a week", "six months"
+try Chrono.date("two weeks from now")
+try Chrono.date("in 3 days")
+try Chrono.date("3 days ago")
+```
+
+Both spellings exist because people type the short one and speak the long one.
+`3 days` used to be a *failure* rather than three days — it ends in "s", which
+is the suffix for seconds, leaving "3 day" to parse as a number.
+
 ## Naming a zone
 
 `Chrono.zone(_:)` takes a zone the way somebody writes one, not only as an IANA

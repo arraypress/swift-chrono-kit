@@ -74,6 +74,12 @@ extension Chrono {
             }
         }
 
+        // Last, Foundation's detector: "this sunday", "a week on tuesday",
+        // "el próximo domingo". Everything above is tried first because it is
+        // exact and this is a guess, but it is a conservative guess — it reads
+        // nothing at all out of "chapter 7" — so it costs nothing to ask.
+        if let detected = detect(text) { return detected }
+
         throw ChronoError.badDate(raw)
     }
 
@@ -87,6 +93,7 @@ extension Chrono {
     /// | `next monday` | the same, but always at least a week out |
     /// | `last monday` | the most recent one, today excluded |
     /// | `+2d`, `90m`, `2w ago` | an offset from now |
+    /// | `two weeks from now`, `in 3 days` | the same, written out |
     /// | `3pm`, `9:30 am` | that time today |
     /// | any of the above `PST`, `Tokyo`, `UTC+2` | the same, read in that zone |
     ///
@@ -113,6 +120,20 @@ extension Chrono {
             let body = String(text.dropLast(" ago".count)).trimmingCharacters(in: .whitespaces)
             guard let seconds = try? duration(body) else { return nil }
             return Date().addingTimeInterval(-seconds)
+        }
+
+        // The long way round to the same place as "+2w". Both spellings exist
+        // because people type the short one and speak the long one.
+        for phrase in [" from now", " from today", " ahead"] where text.hasSuffix(phrase) {
+            let body = String(text.dropLast(phrase.count)).trimmingCharacters(in: .whitespaces)
+            guard let seconds = try? duration(body) else { return nil }
+            return Date().addingTimeInterval(seconds)
+        }
+        if text.hasPrefix("in ") {
+            let body = String(text.dropFirst(3)).trimmingCharacters(in: .whitespaces)
+            if let seconds = try? duration(body) {
+                return Date().addingTimeInterval(seconds)
+            }
         }
 
         // A leading sign means a pure offset from now, with no day/time split.

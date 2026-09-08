@@ -450,3 +450,74 @@ final class ZoneTests: XCTestCase {
         }
     }
 }
+
+// MARK: - Natural language
+
+final class NaturalLanguageTests: XCTestCase {
+
+    /// The day a date lands on, in UTC, so an expectation never depends on
+    /// the machine's zone.
+    private func day(_ text: String) throws -> String {
+        try Chrono.inZone(utc) { Chrono.describe(try Chrono.date(text)).date }
+    }
+
+    private func today(offsetByDays days: Int) -> String {
+        Chrono.inZone(utc) {
+            let date = Chrono.calendar.date(byAdding: .day, value: days, to: Date())!
+            return Chrono.describe(date).date
+        }
+    }
+
+    func testSpelledOutDurations() throws {
+        // "3 days" used to throw: it ends in "s", the suffix for seconds,
+        // which left "3 day" to parse as a number.
+        XCTAssertEqual(try Chrono.duration("3 days"), 3 * 86_400)
+        XCTAssertEqual(try Chrono.duration("two weeks"), 2 * 604_800)
+        XCTAssertEqual(try Chrono.duration("a week"), 604_800)
+        XCTAssertEqual(try Chrono.duration("six months"), 6 * 2_592_000)
+        XCTAssertEqual(try Chrono.duration("90 minutes"), 5_400)
+    }
+
+    func testCompactDurationsAreUnchanged() throws {
+        XCTAssertEqual(try Chrono.duration("2w"), 604_800 * 2)
+        XCTAssertEqual(try Chrono.duration("6mo"), 6 * 2_592_000)
+        XCTAssertEqual(try Chrono.duration("90m"), 5_400)
+    }
+
+    func testWrittenOutOffsets() throws {
+        XCTAssertEqual(try day("two weeks from now"), today(offsetByDays: 14))
+        XCTAssertEqual(try day("in 3 days"), today(offsetByDays: 3))
+        XCTAssertEqual(try day("3 days ago"), today(offsetByDays: -3))
+        XCTAssertEqual(try day("a week from now"), today(offsetByDays: 7))
+    }
+
+    func testTheDetectorReadsWhatTheGrammarDoesNot() throws {
+        // Foundation's detector, reached only after everything exact fails.
+        let sunday = try Chrono.date("this sunday")
+        XCTAssertEqual(Chrono.describe(sunday).weekday, "Sunday")
+        XCTAssertEqual(Chrono.describe(try Chrono.date("next sunday")).weekday, "Sunday")
+    }
+
+    func testTheDetectorIsMultilingual() throws {
+        // The one thing an en_US_POSIX grammar can never be.
+        XCTAssertEqual(Chrono.describe(try Chrono.date("el próximo domingo")).weekday, "Sunday")
+        XCTAssertEqual(Chrono.describe(try Chrono.date("nächsten Sonntag")).weekday, "Sunday")
+    }
+
+    func testJunkIsStillRejected() {
+        // The detector is conservative, which is what makes it safe to ask
+        // last. None of these become a confident date.
+        // Not "sat": this package's own grammar takes three-letter weekdays,
+        // so that one is Saturday on purpose.
+        for junk in ["hello", "chapter 7", "iPhone 15", "version 3", "the report"] {
+            XCTAssertThrowsError(try Chrono.date(junk), junk)
+        }
+    }
+
+    func testTheExactGrammarStillWinsFirst() throws {
+        // The detector reads none of these, so they prove the order too.
+        XCTAssertEqual(try day("+2d"), today(offsetByDays: 2))
+        XCTAssertEqual(try Chrono.inZone(utc) { Chrono.describe(try Chrono.date("2026-09-03")).date },
+                       "2026-09-03")
+    }
+}
