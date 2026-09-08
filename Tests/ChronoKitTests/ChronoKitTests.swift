@@ -560,3 +560,163 @@ final class SweepTests: XCTestCase {
         XCTAssertEqual(try Chrono.duration("2 fortnights"), 28 * 86_400)
     }
 }
+
+// MARK: - Ranges
+
+final class RangeTests: XCTestCase {
+
+    /// Everything below runs in UTC, and "today" is asked of the same calendar
+    /// the parser uses, so the relative cases hold at any hour on any day.
+    private func inUTC(_ body: (_ today: Date) throws -> Void) rethrows {
+        try Chrono.inZone(utc) {
+            try body(Chrono.calendar.startOfDay(for: Date()))
+        }
+    }
+
+    private func day(_ text: String) -> Date {
+        try! Chrono.date(text)
+    }
+
+    func testExplicitPairIsInclusiveAtBothEnds() throws {
+        try inUTC { _ in
+            let range = try Chrono.range("2026-01-01 to 2026-01-31")
+            XCTAssertEqual(range.start, day("2026-01-01"))
+            XCTAssertEqual(range.end, day("2026-01-31"))
+            XCTAssertEqual(range.days, 31)
+            XCTAssertTrue(range.contains(day("2026-01-31T23:59")))
+            XCTAssertFalse(range.contains(day("2026-02-01")))
+        }
+    }
+
+    func testEverySpellingOfAPair() throws {
+        try inUTC { _ in
+            for text in ["2026-03-01 - 2026-03-05",
+                         "2026-03-01 – 2026-03-05",
+                         "from 2026-03-01 until 2026-03-05",
+                         "between 2026-03-01 and 2026-03-05",
+                         "2026-03-01 through 2026-03-05",
+                         "1 Mar 2026 to 5 Mar 2026"] {
+                let range = try Chrono.range(text)
+                XCTAssertEqual(range.start, day("2026-03-01"), text)
+                XCTAssertEqual(range.days, 5, text)
+            }
+        }
+    }
+
+    func testReversedPairNamesTheSameDays() throws {
+        try inUTC { _ in
+            let range = try Chrono.range("2026-03-05 to 2026-03-01")
+            XCTAssertEqual(range.start, day("2026-03-01"))
+            XCTAssertEqual(range.end, day("2026-03-05"))
+        }
+    }
+
+    func testWholeMonths() throws {
+        try inUTC { today in
+            let this = try Chrono.range("this month")
+            XCTAssertEqual(Chrono.calendar.component(.day, from: this.start), 1)
+            XCTAssertTrue(this.contains(today))
+            XCTAssertEqual(Chrono.calendar.date(byAdding: .day, value: 1, to: this.end).map {
+                Chrono.calendar.component(.day, from: $0)
+            }, 1, "the day after the end is the first of next month")
+
+            let last = try Chrono.range("last month")
+            XCTAssertEqual(Chrono.calendar.date(byAdding: .day, value: 1, to: last.end), this.start)
+            XCTAssertEqual(Chrono.calendar.component(.day, from: last.start), 1)
+        }
+    }
+
+    func testWeeksStartOnMonday() throws {
+        try inUTC { today in
+            let week = try Chrono.range("this week")
+            XCTAssertEqual(Chrono.calendar.component(.weekday, from: week.start), 2)
+            XCTAssertEqual(week.days, 7)
+            XCTAssertTrue(week.contains(today))
+        }
+    }
+
+    func testCountedWindowsEndToday() throws {
+        try inUTC { today in
+            let thirty = try Chrono.range("last 30 days")
+            XCTAssertEqual(thirty.end, today)
+            XCTAssertEqual(thirty.days, 30)
+
+            XCTAssertEqual(try Chrono.range("past 2 weeks").days, 14)
+            XCTAssertThrowsError(try Chrono.range("previous fortnight"), "fortnight is a duration, not a range unit")
+        }
+    }
+
+    func testCountedMonthsUseTheCalendar() throws {
+        try inUTC { today in
+            let three = try Chrono.range("previous 3 months")
+            XCTAssertEqual(three.end, today)
+            let expectedStart = Chrono.calendar.date(
+                byAdding: .day, value: 1,
+                to: try Chrono.shift(today, by: -3, .month)
+            )
+            XCTAssertEqual(three.start, expectedStart)
+        }
+    }
+
+    func testNextWindowStartsToday() throws {
+        try inUTC { today in
+            let week = try Chrono.range("next 7 days")
+            XCTAssertEqual(week.start, today)
+            XCTAssertEqual(week.days, 7)
+        }
+    }
+
+    func testToDate() throws {
+        try inUTC { today in
+            let mtd = try Chrono.range("month to date")
+            XCTAssertEqual(Chrono.calendar.component(.day, from: mtd.start), 1)
+            XCTAssertEqual(mtd.end, today)
+            let ytd = try Chrono.range("ytd")
+            XCTAssertEqual(Chrono.calendar.component(.month, from: ytd.start), 1)
+            XCTAssertEqual(Chrono.calendar.component(.day, from: ytd.start), 1)
+            XCTAssertEqual(ytd.end, today)
+        }
+    }
+
+    func testNamedPeriods() throws {
+        try inUTC { _ in
+            XCTAssertEqual(try Chrono.range("september 2026").start, day("2026-09-01"))
+            XCTAssertEqual(try Chrono.range("sep 2026").end, day("2026-09-30"))
+            XCTAssertEqual(try Chrono.range("2026-02").days, 28)
+            XCTAssertEqual(try Chrono.range("2024-02").days, 29)
+            let q3 = try Chrono.range("q3 2026")
+            XCTAssertEqual(q3.start, day("2026-07-01"))
+            XCTAssertEqual(q3.end, day("2026-09-30"))
+            XCTAssertEqual(try Chrono.range("2026 q1").days, 90)
+            XCTAssertEqual(try Chrono.range("2026").days, 365)
+            XCTAssertEqual(try Chrono.range("2024").days, 366)
+        }
+    }
+
+    func testSingleDays() throws {
+        try inUTC { today in
+            let yesterday = try Chrono.range("yesterday")
+            XCTAssertEqual(yesterday.days, 1)
+            XCTAssertEqual(Chrono.calendar.date(byAdding: .day, value: 1, to: yesterday.end), today)
+            XCTAssertEqual(try Chrono.range("2026-09-03").days, 1)
+            XCTAssertEqual(try Chrono.range("3 days ago").days, 1)
+        }
+    }
+
+    func testOpenEnded() throws {
+        try inUTC { today in
+            let since = try Chrono.range("since 2026-01-01")
+            XCTAssertEqual(since.start, day("2026-01-01"))
+            XCTAssertEqual(since.end, today)
+            let until = try Chrono.range("until 2099-12-31")
+            XCTAssertEqual(until.start, today)
+            XCTAssertEqual(until.end, day("2099-12-31"))
+        }
+    }
+
+    func testRefusesWhatIsNotARange() {
+        XCTAssertThrowsError(try Chrono.range("chapter 7"))
+        XCTAssertThrowsError(try Chrono.range(""))
+        XCTAssertThrowsError(try Chrono.range("last 0 days"))
+    }
+}

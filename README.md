@@ -184,6 +184,31 @@ ISO week *and its week year*, quarter, DST, weekend.
 (`432 days`, `10,368 hours`, `297 working days`). Neither can be derived from the
 other, because months are not a fixed length.
 
+## A run of days
+
+```swift
+try Chrono.range("last 30 days")            // thirty days ending today
+try Chrono.range("this month")              // the 1st through the last day
+try Chrono.range("q3 2026")                 // 2026-07-01 … 2026-09-30
+try Chrono.range("2026-03-01 to 2026-03-05")
+try Chrono.range("since monday")            // that day through today
+try Chrono.range("ytd")                     // 1 January through today
+```
+
+Comes back as a `DateRange`: `start` and `end` at the start of their days, inclusive at
+both ends, with `days`, `interval` (half-open, for queries) and `contains(_:)`. Every
+report page on the web has a from/to pair; this reads the thought that fills it in.
+
+The grammar: single days (anything `date` reads), whole units (`this week`, `last
+month`, `next quarter`), counted windows (`last 30 days`, `past 2 weeks`, `previous 3
+months`, `next 7 days`), to-date (`mtd`, `qtd`, `ytd`, `month to date`), named periods
+(`september`, `sep 2026`, `2026-09`, `q3`, `2026`), and pairs joined by `to`, `until`,
+`through`, `-`, `–`, `from … to` or `between … and`.
+
+Two decisions worth knowing. Counted windows include today — `last 7 days` is a week
+of days ending today, not the week before it. And months are shifted by the calendar,
+so `last 3 months` from the 31st lands where a person expects rather than 90 days back.
+
 ## Working days
 
 ```swift
@@ -201,7 +226,7 @@ worse than a failure.
 
 ## Tested
 
-32 tests, every one a question with a single right answer that multiplication gets
+69 tests, every one a question with a single right answer that multiplication gets
 wrong: the February clamp in a common and a leap year, 23- and 25-hour days across both
 London transitions, the order-dependence of `+1mo -1d`, week 53 of the year before,
 Friday plus ten working days, and the whole relative grammar. Fixed dates and fixed
