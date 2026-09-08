@@ -21,6 +21,7 @@ extension Chrono {
     /// boundary goes through ``Chrono/shift(_:by:_:)``, which asks the
     /// calendar instead of multiplying.
     private static let durationUnits: [(suffix: String, seconds: TimeInterval)] = [
+        ("fortnight", 1_209_600),
         ("mo", 2_592_000),
         ("y",  31_536_000),
         ("w",  604_800),
@@ -92,6 +93,7 @@ extension Chrono {
         "hour": "h", "hours": "h", "hr": "h", "hrs": "h",
         "day": "d", "days": "d",
         "week": "w", "weeks": "w",
+        "fortnight": "fortnight", "fortnights": "fortnight",
         "month": "mo", "months": "mo",
         "year": "y", "years": "y", "yr": "y", "yrs": "y",
     ]

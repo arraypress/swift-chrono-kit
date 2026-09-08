@@ -50,6 +50,11 @@ extension Chrono {
             if let parsed = iso.date(from: text) { return parsed }
         }
 
+        // Only on input that starts with a four-digit year. DateFormatter is
+        // lenient about `yyyy`, and left to itself reads "6/5/26" as the 26th
+        // of May in the year 6 — a confidently wrong answer for an ambiguous
+        // date that the detector below at least refuses to guess at.
+        let isoShaped = text.range(of: #"^\d{4}([-/]\d|\d{4}$)"#, options: .regularExpression) != nil
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = timeZone
@@ -58,7 +63,7 @@ extension Chrono {
         // DateFormatter is happy to ignore the tail, which would drop the time.
         for format in ["yyyy-MM-dd'T'HH:mm:ss", "yyyy-MM-dd'T'HH:mm",
                        "yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd HH:mm",
-                       "yyyy/MM/dd", "yyyy-MM-dd", "yyyyMMdd"] {
+                       "yyyy/MM/dd", "yyyy-MM-dd", "yyyyMMdd"] where isoShaped {
             formatter.dateFormat = format
             if let parsed = formatter.date(from: text) { return parsed }
         }
@@ -94,7 +99,8 @@ extension Chrono {
     /// | `last monday` | the most recent one, today excluded |
     /// | `+2d`, `90m`, `2w ago` | an offset from now |
     /// | `two weeks from now`, `in 3 days` | the same, written out |
-    /// | `3pm`, `9:30 am` | that time today |
+    /// | `3pm`, `9:30 am`, `noon`, `midnight` | that time today |
+    /// | `next week`, `last month`, `this year` | one calendar unit away |
     /// | any of the above `PST`, `Tokyo`, `UTC+2` | the same, read in that zone |
     ///
     /// - Note: A bare weekday resolves to *today* when today is that weekday.
@@ -122,6 +128,11 @@ extension Chrono {
             return Date().addingTimeInterval(-seconds)
         }
 
+        // "next week", "last month", "this year": one calendar unit either
+        // way, asked of the calendar so "next month" from 31 January is the
+        // 28th of February and not the 3rd of March.
+        if let shifted = calendarUnitPhrase(text) { return shifted }
+
         // The long way round to the same place as "+2w". Both spellings exist
         // because people type the short one and speak the long one.
         for phrase in [" from now", " from today", " ahead"] where text.hasSuffix(phrase) {
@@ -148,6 +159,26 @@ extension Chrono {
         guard let time = parseTime(timePhrase) else { return nil }
 
         return calendar.date(bySettingHour: time.hour, minute: time.minute, second: 0, of: day)
+    }
+
+    private static func calendarUnitPhrase(_ text: String) -> Date? {
+        let words = text.split(separator: " ")
+        guard words.count == 2 else { return nil }
+        let step: Int
+        switch words[0] {
+        case "next": step = 1
+        case "last": step = -1
+        case "this": step = 0
+        default: return nil
+        }
+        let component: Calendar.Component
+        switch words[1] {
+        case "week": component = .weekOfYear
+        case "month": component = .month
+        case "year": component = .year
+        default: return nil
+        }
+        return calendar.date(byAdding: component, value: step, to: Date())
     }
 
     /// Peels a trailing zone off `9am PST` or `2pm Hong Kong`.
@@ -186,7 +217,8 @@ extension Chrono {
 
     /// Whether a word could be a time of day.
     private static func looksLikeTime(_ word: String) -> Bool {
-        word.range(of: #"^\d{1,2}(:\d{2})?(am|pm)?$"#, options: .regularExpression) != nil
+        word == "noon" || word == "midnight"
+            || word.range(of: #"^\d{1,2}(:\d{2})?(am|pm)?$"#, options: .regularExpression) != nil
     }
 
     /// Resolves a day phrase to some moment on that day, or nil if unrecognised.
@@ -241,6 +273,11 @@ extension Chrono {
     /// typo, and silently reading it as 1am schedules something on the wrong
     /// day.
     private static func parseTime(_ text: String) -> (hour: Int, minute: Int)? {
+        // Midnight is the start of the named day, matching what "today" and
+        // "tomorrow" already mean on their own.
+        if text == "noon" { return (12, 0) }
+        if text == "midnight" { return (0, 0) }
+
         let pattern = #"^(\d{1,2})(?::(\d{2}))?(am|pm)?$"#
         guard let match = text.range(of: pattern, options: .regularExpression) else { return nil }
         let body = String(text[match])

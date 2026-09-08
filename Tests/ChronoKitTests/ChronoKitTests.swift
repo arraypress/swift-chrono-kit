@@ -521,3 +521,42 @@ final class NaturalLanguageTests: XCTestCase {
                        "2026-09-03")
     }
 }
+
+
+// MARK: - Found by typing at it
+
+final class SweepTests: XCTestCase {
+
+    func testATwoDigitYearIsNeverTheYearSix() throws {
+        // DateFormatter reads "6/5/26" as 26 May in the year 6 if allowed to.
+        if let parsed = try? Chrono.inZone(utc, { try Chrono.date("6/5/26") }) {
+            XCTAssertGreaterThan(Chrono.calendar.component(.year, from: parsed), 2000)
+        }
+        // And a real ISO date is untouched.
+        XCTAssertEqual(try Chrono.inZone(utc) { Chrono.describe(try Chrono.date("2026-05-06")).date }, "2026-05-06")
+    }
+
+    func testNoonAndMidnight() throws {
+        try Chrono.inZone(utc) {
+            XCTAssertEqual(Chrono.describe(try Chrono.date("noon")).time, "12:00:00")
+            XCTAssertEqual(Chrono.describe(try Chrono.date("tomorrow midnight")).time, "00:00:00")
+            XCTAssertEqual(Chrono.describe(try Chrono.date("friday noon")).weekday, "Friday")
+        }
+    }
+
+    func testCalendarUnitPhrases() throws {
+        try Chrono.inZone(utc) {
+            let now = Date()
+            let nextWeek = try Chrono.date("next week")
+            XCTAssertEqual(Chrono.calendar.dateComponents([.day], from: now, to: nextWeek).day, 7)
+            let lastYear = try Chrono.date("last year")
+            XCTAssertEqual(Chrono.calendar.component(.year, from: lastYear),
+                           Chrono.calendar.component(.year, from: now) - 1)
+        }
+    }
+
+    func testFortnight() throws {
+        XCTAssertEqual(try Chrono.duration("a fortnight"), 14 * 86_400)
+        XCTAssertEqual(try Chrono.duration("2 fortnights"), 28 * 86_400)
+    }
+}
