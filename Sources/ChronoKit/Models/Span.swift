@@ -27,11 +27,22 @@ public struct Span: Sendable, Hashable, Codable {
     /// be answering a different one.
     public let isBackwards: Bool
 
+    /// Whole years in the calendar breakdown.
     public let years: Int
+
+    /// Months left after the years.
     public let months: Int
+
+    /// Days left after the months.
     public let days: Int
+
+    /// Hours left after the days.
     public let hours: Int
+
+    /// Minutes left after the hours.
     public let minutes: Int
+
+    /// Seconds left after the minutes.
     public let seconds: Int
 
     /// Whole calendar days between the two dates.
@@ -40,13 +51,19 @@ public struct Span: Sendable, Hashable, Codable {
     /// transition a "day" is 23 hours, and 23 hours divided by 24 is zero days.
     public let totalDays: Int
 
-    /// Whole weeks, and the days left over.
+    /// Whole weeks between the two dates.
     public let totalWeeks: Int
+
+    /// The days left over after the whole weeks.
     public let remainderDays: Int
 
-    /// Whole hours, minutes and seconds between the two instants.
+    /// Whole hours between the two instants.
     public let totalHours: Int
+
+    /// Whole minutes between the two instants.
     public let totalMinutes: Int
+
+    /// Whole seconds between the two instants.
     public let totalSeconds: Int
 
     /// Calendar days excluding Saturday and Sunday.
