@@ -22,6 +22,7 @@ public struct DateRange: Sendable, Hashable, Codable {
     /// The last day, at its start.
     public let end: Date
 
+    /// A range from one day to another, in either order.
     public init(start: Date, end: Date) {
         let calendar = Chrono.calendar
         self.start = calendar.startOfDay(for: min(start, end))
