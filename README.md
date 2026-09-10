@@ -311,15 +311,83 @@ zero days away, not a year — and a 29 February birthday falls on the 28th in a
 which is the rule the `chrono age` verb has always used and is now the calendar's. Asking
 Foundation for `2027-02-29` would hand back 1 March, a different day and the wrong one.
 
+## In words
+
+```swift
+Chrono.relative(deadline)                       // "in 3 days", "2 hours ago", "now"
+Chrono.relative(from: then, to: now)
+Chrono.relativeSpan(from: now, to: then)        // count 3, unit .day, isPast false — for your own wording
+```
+
+English on purpose, never `RelativeDateTimeFormatter`: that is locale-driven and prints
+"in 3 Tagen" on a German machine, which is fine for a person and wrong for a field an
+agent parses. The steps are fixed — minutes to an hour, hours to a day, days to a week,
+weeks to two months, months of thirty days to a year, then years — and under 45 seconds
+either way is "now". Moved down from the `chrono` CLI so an app gets the same strings.
+
+## How old
+
+```swift
+try Chrono.age(born: birthday)                  // years, months, days, days old, and the next birthday
+try Chrono.age(born: birthday, on: someDate).described     // "36 years, 3 months, 20 days"
+```
+
+The breakdown is the calendar's, so 31 January to 28 February is a month and no days.
+The next birthday comes from `nextOccurrence`, which puts a 29 February birthday on the
+28th in a common year — the `chrono age` verb asked Foundation for the 29th and was
+handed 1 March, which is the bug this replaces. A birth after the date is refused rather
+than reported as a negative age, because it means the arguments were swapped.
+
+## Working hours
+
+```swift
+let hours = BusinessHours.nineToFive                           // Monday to Friday, 09:00 to 17:00
+try BusinessHours(days: [.saturday, .sunday], opens: try ClockTime(hour: 10), closes: try ClockTime(hour: 16), holidays: list)
+
+Chrono.businessHours(from: fridayFour, to: mondayTen, hours: hours)   // 7,200 — two hours
+Chrono.isOpen(date, hours: hours)
+try Chrono.nextOpening(after: sundayNoon, hours: hours)               // Monday 09:00
+try Chrono.addBusinessHours(8 * 3600, to: fridayFour, hours: hours)   // a deadline eight working hours out: Monday 16:00
+```
+
+Walked day by day: each working day contributes the overlap of its window, weekends and
+holidays contribute nothing, and on the Sunday the clocks change the window is still
+09:00 to 17:00 by the wall clock and still eight hours. A schedule is one window a day
+and never across midnight — a shift from 22:00 to 06:00 belongs to two calendar days,
+and which day's holiday it falls on has no single answer, so it is refused and a night
+shift is two schedules. Weekdays are named, and numbered the ISO way underneath (Monday
+is 1) so Foundation's Sunday-is-1 never leaks into a rule.
+
+## Other calendars
+
+```swift
+Chrono.calendarDate(date, in: .islamicUmmAlQura)     // 1 Muharram 1447 AH
+Chrono.calendarDate(date, in: .japanese).eraName     // "Reiwa", year 8
+Chrono.calendarDate(date, in: .chinese).zodiacAnimal // "Horse"
+try Chrono.date(from: CalendarDate(system: .hebrew, year: 5786, month: 1, day: 1))   // Rosh Hashanah
+try Chrono.convert(CalendarDate(system: .gregorian, year: 2026, month: 3, day: 21), to: .persian)   // 1 Farvardin 1405
+```
+
+Ten calendars Foundation already counts in: Gregorian, Islamic (Umm al-Qura and civil,
+which differ by a day), Hebrew, Japanese, Chinese, Buddhist, Persian, Coptic and Indian.
+A date carries its era because in two of them it is the point — Reiwa 8, or year 43 of
+cycle 78 — and leaving it out means the current one. Days are civil days from midnight
+in `Chrono.timeZone`, which is what a printed calendar in that place shows; Nowruz is
+21 March 2026 on Tehran's day. An impossible date is refused, not rolled over: Foundation
+would quietly turn 31 Muharram into 1 Safar.
+
 ## Tested
 
-125 tests, every one a question with a single right answer that multiplication gets
+125 tests (+38 in this branch), every one a question with a single right answer that multiplication gets
 wrong: the February clamp in a common and a leap year, 23- and 25-hour days across both
 London transitions, the order-dependence of `+1mo -1d`, week 53 of the year before,
 Friday plus ten working days, the whole relative grammar, every handover hour of the day,
 windows that cross midnight, a weekly interval across both clock changes, every one of the
 124 template tokens against its example, 5 April belonging to the previous tax year, and
-29 February landing on the 28th. Fixed dates and fixed
+29 February landing on the 28th, the relative wording pinned string by string, a leap-day
+birthday on the 28th, Friday four to Monday ten being two working hours, eight-hour days
+across both clock changes, and the first of Muharram, Rosh Hashanah, Chinese New Year
+and Nowruz on their published Gregorian days. Fixed dates and fixed
 zones throughout — a suite that says "today" passes on the day it was written.
 
 ## Licence

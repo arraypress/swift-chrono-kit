@@ -38,6 +38,15 @@ public enum ChronoError: Error, LocalizedError, Equatable, Sendable {
     /// A month and day that no year contains, like 31 April.
     case badMonthDay(String)
 
+    /// A birth date after the date it is measured on.
+    case futureBirth(String)
+
+    /// Working hours with no days, or a window that does not close after it opens.
+    case badBusinessHours(String)
+
+    /// A day that does not exist in its calendar, like 30 Adar or 31 Muharram.
+    case badCalendarDate(String)
+
     public var errorDescription: String? {
         switch self {
         case .badDate(let text):
@@ -69,6 +78,12 @@ public enum ChronoError: Error, LocalizedError, Equatable, Sendable {
             return "not a fiscal year start: \(what)\nthe month runs 1–12 and the day 1–28, so the year can start in every calendar year"
         case .badMonthDay(let what):
             return "not a day of the year: \(what)\nthe month runs 1–12 and the day must exist in that month; 29 February is allowed and lands on the 28th in a common year"
+        case .futureBirth(let what):
+            return "not an age: \(what)\nnothing is a negative age; the birth date comes first"
+        case .badBusinessHours(let what):
+            return "not a working schedule: \(what)"
+        case .badCalendarDate(let what):
+            return "not a date in that calendar: \(what)\nthe month and day must exist in that year of that calendar"
         }
     }
 }
