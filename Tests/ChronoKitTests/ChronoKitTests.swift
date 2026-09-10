@@ -1005,3 +1005,400 @@ final class DayPartsTests: XCTestCase {
         }
     }
 }
+
+// MARK: - Date tokens
+
+final class DateTokenTests: XCTestCase {
+
+    /// 2026-09-03T14:30:00Z — a Thursday in ISO week 36, Q3.
+    private var reference: Date { try! at("2026-09-03T14:30") }
+
+    private func fill(_ template: String, at now: Date? = nil, in zone: TimeZone = utc) -> String {
+        Chrono.inZone(zone) { Chrono.fill(template, at: now ?? reference) }
+    }
+
+    private func unix(_ text: String) throws -> Int {
+        try XCTUnwrap(Int(fill(text)), text)
+    }
+
+    func testTodayAndComponents() {
+        XCTAssertEqual(fill("{today}"), "2026-09-03")
+        XCTAssertEqual(fill("{year}-{month}-{day}"), "2026-09-03")
+        XCTAssertEqual(fill("{hour}:{minute}:{second}"), "14:30:00")
+        XCTAssertEqual(fill("{month_name} {day_name}"), "September Thursday")
+        XCTAssertEqual(fill("{quarter} week {week_number}"), "Q3 week 36")
+        XCTAssertEqual(fill("{now}"), "\(Int(reference.timeIntervalSince1970))")
+        XCTAssertEqual(fill("{now_ms}"), "\(Int(reference.timeIntervalSince1970) * 1000)")
+        XCTAssertEqual(fill("{now_iso}"), "2026-09-03T14:30:00Z")
+    }
+
+    func testWeekStartsOnMondayEverywhere() throws {
+        let start = Date(timeIntervalSince1970: TimeInterval(try unix("{week_start}")))
+        let end = Date(timeIntervalSince1970: TimeInterval(try unix("{week_end}")))
+        try Chrono.inZone(utc) {
+            XCTAssertEqual(Chrono.calendar.component(.weekday, from: start), 2, "ISO weeks start on Monday, whatever the locale says")
+            XCTAssertEqual(start, Chrono.calendar.startOfDay(for: start))
+            XCTAssertEqual(Chrono.describe(start).date, "2026-08-31")
+        }
+        XCTAssertEqual(Int(end.timeIntervalSince(start)) + 1, 7 * 86_400)
+        // The same Monday, but Tokyo's midnight is nine hours before UTC's.
+        let tokyoStart = Chrono.inZone(tokyo) { Chrono.fill("{week_start}", at: reference) }
+        XCTAssertEqual(try XCTUnwrap(Int(tokyoStart)), try unix("{week_start}") - 9 * 3600)
+    }
+
+    func testMonthsAndYearsShiftByTheCalendar() throws {
+        // "1 year ago" on 1 March 2025 is 1 March 2024 — not 29 February.
+        let march = try at("2025-03-01T12:00")
+        XCTAssertEqual(fill("{1_year_ago}", at: march), "\(Int(try at("2024-03-01T12:00").timeIntervalSince1970))")
+        // Three months before 31 May is 28 February: the calendar clamps.
+        let may = try at("2026-05-31T12:00")
+        XCTAssertEqual(fill("{3_months_ago}", at: may), "\(Int(try at("2026-02-28T12:00").timeIntervalSince1970))")
+        XCTAssertEqual(fill("{6_months_ago}", at: may), "\(Int(try at("2025-11-30T12:00").timeIntervalSince1970))")
+    }
+
+    func testDayOffsetsStepByCalendarDay() throws {
+        // London springs forward on 29 March 2026; a week before 1 April is
+        // still 25 March, though only 167 hours have passed.
+        let april = try Chrono.inZone(london) { try Chrono.date("2026-04-01T12:00") }
+        XCTAssertEqual(fill("{date_7d_ago}", at: april, in: london), "2026-03-25")
+        XCTAssertEqual(fill("{date_30d_ago}", at: april, in: london), "2026-03-02")
+        XCTAssertEqual(fill("{date_90d_ago}", at: april, in: london), "2026-01-01")
+        // The unix twin is an exact duration and lands an hour off the calendar day.
+        let exact = Int(april.timeIntervalSince1970) - 7 * 86_400
+        XCTAssertEqual(fill("{7d_ago}", at: april, in: london), "\(exact)")
+    }
+
+    func testPeriodTwinsAgree() throws {
+        let start = try unix("{month_start}")
+        XCTAssertEqual(fill("{month_start_ms}"), "\(start * 1000)")
+        XCTAssertEqual(fill("{month_start_date}"), "2026-09-01")
+        XCTAssertEqual(fill("{month_start_iso}"), "2026-09-01T00:00:00Z")
+        XCTAssertEqual(fill("{month_end_iso}"), "2026-09-30T23:59:59Z")
+        XCTAssertEqual(fill("{month_end_date}"), "2026-09-30")
+        XCTAssertEqual(try unix("{month_end}"), try unix("{month_start}") + 30 * 86_400 - 1)
+        XCTAssertEqual(fill("{week_end_date}"), "2026-09-06")
+        XCTAssertEqual(fill("{quarter_start_date}…{quarter_end_date}"), "2026-07-01…2026-09-30")
+        XCTAssertEqual(fill("{year_start_date}…{year_end_date}"), "2026-01-01…2026-12-31")
+        XCTAssertEqual(fill("{year_end_iso}"), "2026-12-31T23:59:59Z")
+    }
+
+    func testLastPeriodsEndASecondBeforeThisOneStarts() throws {
+        XCTAssertEqual(fill("{last_week_start_date}…{last_week_end_date}"), "2026-08-24…2026-08-30")
+        XCTAssertEqual(fill("{last_month_start_date}…{last_month_end_date}"), "2026-08-01…2026-08-31")
+        XCTAssertEqual(fill("{last_quarter_start_date}…{last_quarter_end_date}"), "2026-04-01…2026-06-30")
+        XCTAssertEqual(fill("{last_year_start_date}…{last_year_end_date}"), "2025-01-01…2025-12-31")
+        XCTAssertEqual(try unix("{last_month_end}"), try unix("{month_start}") - 1)
+        XCTAssertEqual(try unix("{last_week_end}"), try unix("{week_start}") - 1)
+        XCTAssertEqual(try unix("{last_quarter_end}"), try unix("{quarter_start}") - 1)
+        XCTAssertEqual(try unix("{last_year_end}"), try unix("{year_start}") - 1)
+        XCTAssertEqual(fill("{last_year_end_iso}"), "2025-12-31T23:59:59Z")
+        XCTAssertEqual(fill("{last_quarter_start_ms}"), "\(Int(try at("2026-04-01").timeIntervalSince1970) * 1000)")
+    }
+
+    func testTodayYesterdayAndTomorrowBoundaries() throws {
+        let midnight = Int(try at("2026-09-03").timeIntervalSince1970)
+        XCTAssertEqual(try unix("{today_start}"), midnight)
+        XCTAssertEqual(try unix("{today_end}"), midnight + 86_399)
+        XCTAssertEqual(fill("{today_start_ms}"), "\(midnight * 1000)")
+        XCTAssertEqual(fill("{today_end_ms}"), "\((midnight + 86_399) * 1000)")
+        XCTAssertEqual(fill("{today_iso}"), "2026-09-03T00:00:00Z")
+        XCTAssertEqual(fill("{yesterday}"), "2026-09-02")
+        XCTAssertEqual(fill("{yesterday_iso}"), "2026-09-02T00:00:00Z")
+        XCTAssertEqual(try unix("{yesterday_start}"), midnight - 86_400)
+        XCTAssertEqual(try unix("{yesterday_end}"), midnight - 1)
+        XCTAssertEqual(fill("{tomorrow}"), "2026-09-04")
+        XCTAssertEqual(try unix("{tomorrow_start}"), midnight + 86_400)
+        XCTAssertEqual(try unix("{tomorrow_end}"), midnight + 2 * 86_400 - 1)
+    }
+
+    func testTomorrowIsTwentyThreeHoursLongOnTheClockChange() throws {
+        // 28 March 2026 in London: tomorrow springs forward, so tomorrow's
+        // end is 23 hours minus a second after its start.
+        let saturday = try Chrono.inZone(london) { try Chrono.date("2026-03-28T12:00") }
+        let start = try XCTUnwrap(Int(fill("{tomorrow_start}", at: saturday, in: london)))
+        let end = try XCTUnwrap(Int(fill("{tomorrow_end}", at: saturday, in: london)))
+        XCTAssertEqual(end - start + 1, 23 * 3600)
+    }
+
+    func testRelativeTokensAreExactDurations() throws {
+        let now = Int(reference.timeIntervalSince1970)
+        XCTAssertEqual(try unix("{1h_ago}"), now - 3600)
+        XCTAssertEqual(try unix("{6h_ago}"), now - 6 * 3600)
+        XCTAssertEqual(try unix("{12h_ago}"), now - 12 * 3600)
+        XCTAssertEqual(try unix("{24h_ago}"), now - 86_400)
+        XCTAssertEqual(try unix("{1d_ago}"), now - 86_400)
+        XCTAssertEqual(try unix("{7d_ago}"), now - 7 * 86_400)
+        XCTAssertEqual(try unix("{180d_ago}"), now - 180 * 86_400)
+        XCTAssertEqual(try unix("{365d_ago}"), now - 365 * 86_400)
+        XCTAssertEqual(try unix("{1_day_ago}"), now - 86_400)
+        XCTAssertEqual(try unix("{7_days_ago}"), now - 7 * 86_400)
+        XCTAssertEqual(try unix("{30_days_ago}"), now - 30 * 86_400)
+        XCTAssertEqual(fill("{30d_ago_ms}"), "\((now - 30 * 86_400) * 1000)")
+        XCTAssertEqual(fill("{1h_ago_ms}"), "\((now - 3600) * 1000)")
+        XCTAssertEqual(fill("{7d_ago_iso}"), "2026-08-27T14:30:00Z")
+        XCTAssertEqual(fill("{365d_ago_iso}"), "2025-09-03T14:30:00Z")
+    }
+
+    func testUnknownBracesPassThrough() {
+        XCTAssertEqual(fill("{ user { id name } }"), "{ user { id name } }", "a GraphQL body is not a token")
+        XCTAssertEqual(fill("https://x/{id}?q={today}"), "https://x/{id}?q=2026-09-03")
+        XCTAssertEqual(fill("no braces"), "no braces")
+        XCTAssertEqual(fill(""), "")
+        XCTAssertEqual(fill("{TODAY}"), "{TODAY}", "names are lowercase")
+        XCTAssertEqual(fill("{today"), "{today")
+        XCTAssertEqual(fill("{{today}}"), "{2026-09-03}", "the inner braces are the token")
+        XCTAssertEqual(fill("{basic_auth}"), "{basic_auth}", "credentials are the app's business, not the calendar's")
+        XCTAssertEqual(fill("{currency} {uuid} {random}"), "{currency} {uuid} {random}")
+    }
+
+    func testEveryCatalogueTokenResolvesAndItsExampleIsTrue() throws {
+        let tokens = Chrono.tokens
+        XCTAssertEqual(tokens.count, 124)
+        XCTAssertEqual(Set(tokens.map(\.name)).count, tokens.count, "names are unique")
+        for token in tokens {
+            let value = Chrono.inZone(utc) { Chrono.value(of: token.name, at: reference) }
+            XCTAssertNotNil(value, token.name)
+            XCTAssertFalse(value?.isEmpty ?? true, token.name)
+            XCTAssertEqual(value, token.example, "the example is the value at the reference instant: \(token.name)")
+            XCTAssertTrue(token.description.hasSuffix("."), token.name)
+            XCTAssertEqual(token.id, token.name)
+        }
+        XCTAssertNil(Chrono.value(of: "not_a_token", at: reference))
+        XCTAssertNil(Chrono.value(of: "2d_ago", at: reference), "only the catalogued durations exist")
+        XCTAssertNil(Chrono.value(of: "week_start_seconds", at: reference))
+    }
+
+    func testDescriptionsSayWhatTheyMean() {
+        let lookup = Dictionary(uniqueKeysWithValues: Chrono.tokens.map { ($0.name, $0.description) })
+        XCTAssertEqual(lookup["last_quarter_end_iso"], "The last second of last quarter, in ISO 8601 (UTC).")
+        XCTAssertEqual(lookup["week_start"], "The first instant of this week (Monday to Sunday), as a Unix timestamp in seconds.")
+        XCTAssertEqual(lookup["30d_ago_ms"], "Exactly 30 days before now, as a Unix timestamp in milliseconds.")
+        XCTAssertEqual(lookup["1h_ago"], "Exactly 1 hour before now, as a Unix timestamp in seconds.")
+        XCTAssertEqual(lookup["date_90d_ago"], "The calendar date 90 days before today, as yyyy-MM-dd.")
+        XCTAssertEqual(lookup["quarter"], "The calendar quarter, as Q1–Q4.")
+    }
+
+    func testTheZoneDecidesWhichDayItIs() throws {
+        // 23:30 UTC is already tomorrow in London during British Summer Time.
+        let late = try at("2026-09-03T23:30")
+        XCTAssertEqual(fill("{today}", at: late, in: utc), "2026-09-03")
+        XCTAssertEqual(fill("{today}", at: late, in: london), "2026-09-04")
+        XCTAssertEqual(fill("{hour}", at: late, in: tokyo), "08")
+        XCTAssertEqual(fill("{timezone}", in: tokyo), "Asia/Tokyo")
+        // Foundation spells the UTC zone "GMT", and the token reports what the zone says.
+        XCTAssertEqual(fill("{timezone}", in: utc), "GMT")
+        // ISO tokens are always UTC, whatever the zone.
+        XCTAssertEqual(fill("{now_iso}", at: late, in: tokyo), "2026-09-03T23:30:00Z")
+        XCTAssertEqual(fill("{today_iso}", at: late, in: london), "2026-09-03T23:00:00Z", "London's midnight, written in UTC")
+    }
+
+    func testTokensRoundTripThroughJSON() throws {
+        let token = try XCTUnwrap(Chrono.tokens.first)
+        let data = try JSONEncoder().encode(token)
+        XCTAssertEqual(try JSONDecoder().decode(DateToken.self, from: data), token)
+    }
+}
+
+// MARK: - Fiscal periods
+
+final class FiscalPeriodTests: XCTestCase {
+
+    private func day(_ date: Date) -> String { Chrono.describe(date).date }
+
+    func testTheUKTaxYearStartsOnTheSixthOfApril() throws {
+        try Chrono.inZone(utc) {
+            let may = Chrono.fiscalQuarter(try at("2026-05-10"), fiscalYear: .unitedKingdom)
+            XCTAssertEqual(may.number, 1)
+            XCTAssertEqual(day(may.days.start), "2026-04-06")
+            XCTAssertEqual(day(may.days.end), "2026-07-05")
+            XCTAssertEqual(may.startYear, 2026)
+            XCTAssertEqual(may.endYear, 2027)
+            XCTAssertEqual(may.yearLabel, "2026/27")
+            XCTAssertEqual(may.label, "Q1 2026/27")
+
+            let february = Chrono.fiscalQuarter(try at("2027-02-10"), fiscalYear: .unitedKingdom)
+            XCTAssertEqual(february.number, 4)
+            XCTAssertEqual(day(february.days.start), "2027-01-06")
+            XCTAssertEqual(day(february.days.end), "2027-04-05")
+            XCTAssertEqual(february.yearLabel, "2026/27")
+        }
+    }
+
+    func testTheFifthOfAprilBelongsToThePreviousYear() throws {
+        try Chrono.inZone(utc) {
+            let fifth = Chrono.fiscalQuarter(try at("2026-04-05"), fiscalYear: .unitedKingdom)
+            XCTAssertEqual(fifth.label, "Q4 2025/26")
+            XCTAssertEqual(day(fifth.days.start), "2026-01-06")
+            XCTAssertEqual(day(fifth.days.end), "2026-04-05")
+            let sixth = Chrono.fiscalQuarter(try at("2026-04-06"), fiscalYear: .unitedKingdom)
+            XCTAssertEqual(sixth.label, "Q1 2026/27")
+            let year = Chrono.fiscalYear(try at("2026-04-05"), fiscalYear: .unitedKingdom)
+            XCTAssertEqual(day(year.start), "2025-04-06")
+            XCTAssertEqual(day(year.end), "2026-04-05")
+            XCTAssertEqual(year.days, 365)
+        }
+    }
+
+    func testTheUSFederalYearStartsInOctober() throws {
+        try Chrono.inZone(utc) {
+            let november = Chrono.fiscalQuarter(try at("2026-11-15"), fiscalYear: .unitedStatesFederal)
+            XCTAssertEqual(november.label, "Q1 2026/27")
+            XCTAssertEqual(day(november.days.start), "2026-10-01")
+            XCTAssertEqual(day(november.days.end), "2026-12-31")
+            let september = Chrono.fiscalQuarter(try at("2026-09-30"), fiscalYear: .unitedStatesFederal)
+            XCTAssertEqual(september.label, "Q4 2025/26")
+            XCTAssertEqual(day(september.days.start), "2026-07-01")
+            XCTAssertEqual(day(september.days.end), "2026-09-30")
+        }
+    }
+
+    func testTheCalendarYearMatchesTheInstantsQuarter() throws {
+        try Chrono.inZone(utc) {
+            for text in ["2026-01-01", "2026-03-31", "2026-04-01", "2026-06-30", "2026-07-01", "2026-09-30", "2026-10-01", "2026-12-31"] {
+                let date = try at(text)
+                XCTAssertEqual(Chrono.fiscalQuarter(date).number, Chrono.describe(date).quarter, text)
+            }
+            let q3 = Chrono.fiscalQuarter(try at("2026-09-03"))
+            XCTAssertEqual(q3.yearLabel, "2026")
+            XCTAssertEqual(q3.label, "Q3 2026")
+            XCTAssertEqual(day(q3.days.start), "2026-07-01")
+            XCTAssertEqual(day(q3.days.end), "2026-09-30")
+            XCTAssertEqual(q3.days.days, 92)
+            XCTAssertEqual(Chrono.fiscalYear(try at("2026-09-03")).days, 365)
+            XCTAssertEqual(Chrono.fiscalYear(try at("2028-09-03")).days, 366)
+        }
+    }
+
+    func testALeapDayInsideAQuarter() throws {
+        try Chrono.inZone(utc) {
+            XCTAssertEqual(Chrono.fiscalQuarter(try at("2028-02-29")).days.days, 91)
+            XCTAssertEqual(Chrono.fiscalQuarter(try at("2027-02-28")).days.days, 90)
+            let uk = Chrono.fiscalQuarter(try at("2028-02-29"), fiscalYear: .unitedKingdom)
+            XCTAssertEqual(uk.label, "Q4 2027/28")
+            XCTAssertEqual(uk.days.days, 91)
+            XCTAssertTrue(uk.days.contains(try at("2028-02-29")))
+        }
+    }
+
+    func testAStartDayLateInFebruary() throws {
+        try Chrono.inZone(utc) {
+            let fiscal = try FiscalYear(startMonth: 2, startDay: 28)
+            XCTAssertEqual(day(Chrono.fiscalYear(try at("2028-02-28"), fiscalYear: fiscal).start), "2028-02-28")
+            XCTAssertEqual(day(Chrono.fiscalYear(try at("2028-02-27"), fiscalYear: fiscal).start), "2027-02-28")
+            XCTAssertEqual(day(Chrono.fiscalYear(try at("2028-02-27"), fiscalYear: fiscal).end), "2028-02-27")
+        }
+    }
+
+    func testThePresetsAndTheRefusals() throws {
+        XCTAssertEqual(FiscalYear.calendar, try FiscalYear(startMonth: 1))
+        XCTAssertEqual(FiscalYear.unitedKingdom, try FiscalYear(startMonth: 4, startDay: 6))
+        XCTAssertEqual(FiscalYear.unitedStatesFederal, try FiscalYear(startMonth: 10))
+        XCTAssertEqual(FiscalYear.australia, try FiscalYear(startMonth: 7))
+        XCTAssertEqual(FiscalYear.april, try FiscalYear(startMonth: 4))
+        XCTAssertThrowsError(try FiscalYear(startMonth: 13))
+        XCTAssertThrowsError(try FiscalYear(startMonth: 0))
+        XCTAssertThrowsError(try FiscalYear(startMonth: 4, startDay: 0))
+        XCTAssertThrowsError(try FiscalYear(startMonth: 2, startDay: 29)) { error in
+            XCTAssertEqual(error as? ChronoError, .badFiscalYear("month 2, day 29"))
+            XCTAssertTrue(error.localizedDescription.contains("1–28"))
+        }
+    }
+
+    func testFiscalTypesRoundTripThroughJSON() throws {
+        try Chrono.inZone(utc) {
+            let quarter = Chrono.fiscalQuarter(try at("2026-05-10"), fiscalYear: .unitedKingdom)
+            let data = try JSONEncoder().encode(quarter)
+            XCTAssertEqual(try JSONDecoder().decode(FiscalQuarter.self, from: data), quarter)
+            let year = try JSONEncoder().encode(FiscalYear.australia)
+            XCTAssertEqual(try JSONDecoder().decode(FiscalYear.self, from: year), .australia)
+        }
+    }
+
+    func testTheLabelArithmetic() {
+        XCTAssertEqual(FiscalPeriods.yearLabel(startYear: 2026, endYear: 2026), "2026")
+        XCTAssertEqual(FiscalPeriods.yearLabel(startYear: 2026, endYear: 2027), "2026/27")
+        XCTAssertEqual(FiscalPeriods.yearLabel(startYear: 2099, endYear: 2100), "2099/00")
+    }
+}
+
+// MARK: - Days until, and anniversaries
+
+final class AnniversaryTests: XCTestCase {
+
+    func testDaysUntilCountsCalendarDays() throws {
+        try Chrono.inZone(utc) {
+            let today = try at("2026-09-03T14:30")
+            XCTAssertEqual(Chrono.daysUntil(try at("2026-09-03T02:00"), from: today), 0)
+            XCTAssertEqual(Chrono.daysUntil(try at("2026-09-04"), from: today), 1)
+            XCTAssertEqual(Chrono.daysUntil(try at("2026-09-02T23:59"), from: today), -1)
+            XCTAssertEqual(Chrono.daysUntil(try at("2026-09-04T01:00"), from: try at("2026-09-03T23:00")), 1)
+            XCTAssertEqual(Chrono.daysUntil(try at("2027-01-01"), from: try at("2026-01-01")), 365)
+            XCTAssertEqual(Chrono.daysUntil(try at("2029-01-01"), from: try at("2028-01-01")), 366)
+            XCTAssertEqual(Chrono.daysUntil(try at("2026-01-01"), from: try at("2026-12-31")), -364)
+        }
+    }
+
+    func testDaysUntilAcrossTheClockChange() throws {
+        try Chrono.inZone(london) {
+            let saturday = try Chrono.date("2026-03-28T12:00")
+            XCTAssertEqual(Chrono.daysUntil(try Chrono.date("2026-03-29T12:00"), from: saturday), 1)
+            XCTAssertEqual(Chrono.daysUntil(try Chrono.date("2026-04-04"), from: saturday), 7)
+            let autumn = try Chrono.date("2026-10-24T12:00")
+            XCTAssertEqual(Chrono.daysUntil(try Chrono.date("2026-10-25T12:00"), from: autumn), 1)
+        }
+    }
+
+    func testTheNextOccurrenceOfADate() throws {
+        try Chrono.inZone(utc) {
+            let today = try at("2026-09-03T14:30")
+            XCTAssertEqual(Chrono.describe(try Chrono.nextOccurrence(month: 12, day: 25, after: today)).date, "2026-12-25")
+            XCTAssertEqual(Chrono.describe(try Chrono.nextOccurrence(month: 5, day: 14, after: today)).date, "2027-05-14")
+            XCTAssertEqual(Chrono.describe(try Chrono.nextOccurrence(month: 9, day: 3, after: today)).date, "2026-09-03", "today counts")
+            XCTAssertEqual(Chrono.describe(try Chrono.nextOccurrence(month: 9, day: 2, after: today)).date, "2027-09-02")
+            XCTAssertEqual(Chrono.describe(try Chrono.nextOccurrence(month: 12, day: 31, after: try at("2026-12-31"))).date, "2026-12-31")
+            XCTAssertEqual(Chrono.describe(try Chrono.nextOccurrence(month: 1, day: 1, after: try at("2026-12-31"))).date, "2027-01-01")
+            XCTAssertEqual(Chrono.daysUntil(try Chrono.nextOccurrence(month: 12, day: 25, after: today), from: today), 113)
+        }
+    }
+
+    func testTwentyNinthOfFebruaryLandsOnTheTwentyEighthInACommonYear() throws {
+        try Chrono.inZone(utc) {
+            XCTAssertEqual(Chrono.describe(try Chrono.nextOccurrence(month: 2, day: 29, after: try at("2026-03-01"))).date, "2027-02-28")
+            XCTAssertEqual(Chrono.describe(try Chrono.nextOccurrence(month: 2, day: 29, after: try at("2027-03-01"))).date, "2028-02-29")
+            XCTAssertEqual(Chrono.describe(try Chrono.nextOccurrence(month: 2, day: 29, after: try at("2028-02-28"))).date, "2028-02-29")
+            XCTAssertEqual(Chrono.describe(try Chrono.nextOccurrence(month: 2, day: 29, after: try at("2027-02-28"))).date, "2027-02-28", "the 28th is the birthday in a common year, and it is today")
+            XCTAssertEqual(Chrono.describe(try Chrono.nextOccurrence(month: 2, day: 29, after: try at("2100-01-01"))).date, "2100-02-28", "2100 is not a leap year")
+        }
+    }
+
+    func testAMonthAndDayNoYearContainsIsRefused() {
+        XCTAssertThrowsError(try Chrono.nextOccurrence(month: 4, day: 31))
+        XCTAssertThrowsError(try Chrono.nextOccurrence(month: 13, day: 1))
+        XCTAssertThrowsError(try Chrono.nextOccurrence(month: 0, day: 5))
+        XCTAssertThrowsError(try Chrono.nextOccurrence(month: 2, day: 30)) { error in
+            XCTAssertEqual(error as? ChronoError, .badMonthDay("2/30"))
+            XCTAssertTrue(error.localizedDescription.contains("29 February is allowed"))
+        }
+        XCTAssertNoThrow(try Chrono.nextOccurrence(month: 2, day: 29))
+        XCTAssertNoThrow(try Chrono.nextOccurrence(month: 12, day: 31))
+    }
+
+    func testTheZoneDecidesWhetherTodayHasPassed() throws {
+        // 20:00 UTC on Christmas Day is 05:00 on Boxing Day in Tokyo.
+        let evening = try at("2026-12-25T20:00")
+        XCTAssertEqual(Chrono.inZone(utc) { Chrono.describe(try! Chrono.nextOccurrence(month: 12, day: 25, after: evening)).date }, "2026-12-25")
+        XCTAssertEqual(Chrono.inZone(tokyo) { Chrono.describe(try! Chrono.nextOccurrence(month: 12, day: 25, after: evening)).date }, "2027-12-25")
+    }
+
+    func testTheLeapRule() {
+        XCTAssertTrue(Anniversaries.isLeap(2000))
+        XCTAssertFalse(Anniversaries.isLeap(1900))
+        XCTAssertTrue(Anniversaries.isLeap(2024))
+        XCTAssertFalse(Anniversaries.isLeap(2026))
+        XCTAssertFalse(Anniversaries.isLeap(2100))
+        Chrono.inZone(utc) {
+            XCTAssertEqual(Anniversaries.occurrence(month: 2, day: 29, year: 2027).map { Chrono.describe($0).date }, "2027-02-28")
+            XCTAssertEqual(Anniversaries.occurrence(month: 2, day: 29, year: 2028).map { Chrono.describe($0).date }, "2028-02-29")
+        }
+    }
+}

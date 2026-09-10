@@ -32,6 +32,12 @@ public enum ChronoError: Error, LocalizedError, Equatable, Sendable {
     /// A clock time whose hour or minute is off the face.
     case badClockTime(String)
 
+    /// A fiscal year start that is not a month 1–12 and a day 1–28.
+    case badFiscalYear(String)
+
+    /// A month and day that no year contains, like 31 April.
+    case badMonthDay(String)
+
     public var errorDescription: String? {
         switch self {
         case .badDate(let text):
@@ -59,6 +65,10 @@ public enum ChronoError: Error, LocalizedError, Equatable, Sendable {
             return "not a set of day-part boundaries: \(what)\nmorning, afternoon, evening and night must start at rising hours between 0 and 23"
         case .badClockTime(let what):
             return "not a clock time: \(what)\nhours run 0–23 and minutes 0–59"
+        case .badFiscalYear(let what):
+            return "not a fiscal year start: \(what)\nthe month runs 1–12 and the day 1–28, so the year can start in every calendar year"
+        case .badMonthDay(let what):
+            return "not a day of the year: \(what)\nthe month runs 1–12 and the day must exist in that month; 29 February is allowed and lands on the 28th in a common year"
         }
     }
 }

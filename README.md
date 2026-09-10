@@ -251,13 +251,75 @@ equal it is the whole day. Interval days are counted by the calendar: a week acr
 the clock change is still seven days, days before the anchor are never interval
 days, and the anchor itself counts.
 
+## Filling a template
+
+```swift
+Chrono.fill("https://api.example.com/orders?since={month_start_iso}&until={now_iso}")
+// https://api.example.com/orders?since=2026-09-01T00:00:00Z&until=2026-09-03T14:30:00Z
+
+Chrono.fill("{today} · week {week_number} · {quarter}")   // 2026-09-03 · week 36 · Q3
+Chrono.fill("{ user { id name } }")                       // untouched — a GraphQL body is not a token
+Chrono.value(of: "30d_ago_ms")                            // "1785853800000"
+Chrono.tokens.count                                       // 124, each with a description and a true example
+```
+
+The tokens a request template carries, filled in from the calendar: `{today}`,
+`{yesterday}`, `{tomorrow}` and their `_start`/`_end` seconds; `{week_start}` … `{year_end}`
+and `{last_week_start}` … `{last_year_end}`, each in four spellings — Unix seconds, `_ms`,
+`_iso` (RFC 3339, UTC) and `_date` (`yyyy-MM-dd`); exact durations `{1h_ago}` … `{365d_ago}`
+with `_ms` and `_iso` twins; calendar shifts `{3_months_ago}`, `{6_months_ago}`, `{1_year_ago}`
+and `{date_7d_ago}` … `{date_90d_ago}`; the components `{year}` `{month}` `{day}` `{hour}`
+`{minute}` `{second}` `{month_name}` `{day_name}` `{week_number}` `{quarter}`; and `{timezone}`.
+The catalogue is MetricBar's, name for name, so its templates keep working here.
+
+Unknown braces are left exactly as written. Period tokens use `Chrono.calendar` — Gregorian,
+ISO weeks, `Chrono.timeZone` — so `{week_start}` names the same Monday on every machine;
+months and years shift by the calendar ("1 year ago" on 1 March 2025 is 1 March 2024, not
+29 February); day offsets step by calendar day, so a clock change cannot move
+`{date_7d_ago}` to the wrong date; and the `Nd_ago` tokens stay exact durations, because that
+is what they say. Ends are the last second of their period, which is what an inclusive
+`until=` wants.
+
+## Fiscal years
+
+```swift
+Chrono.fiscalQuarter(date, fiscalYear: .unitedKingdom)   // Q1 2026/27: 6 April to 5 July
+Chrono.fiscalQuarter(date, fiscalYear: .unitedStatesFederal).label
+Chrono.fiscalYear(date, fiscalYear: try FiscalYear(startMonth: 7))   // Australia's, as a DateRange
+Chrono.fiscalQuarter(date).number == Chrono.describe(date).quarter   // the calendar year, by default
+```
+
+A fiscal year starts on a month and a day; quarters are three calendar months from there.
+The UK's runs from 6 April, so Q4 is 6 January to 5 April and **5 April belongs to the
+previous year** — the mistake every spreadsheet makes once. Presets for the calendar year,
+the UK, the US federal year, Australia and 1 April; the start day is capped at 28 so the
+year can begin in every calendar year. The label reads `2026` when the year is the calendar
+year and `2026/27` when it straddles two.
+
+## Days until, and the next time a date comes round
+
+```swift
+Chrono.daysUntil(deadline)                          // 0 today, 1 tomorrow, -1 yesterday
+try Chrono.nextOccurrence(month: 12, day: 25)       // this year's, or next year's if it has gone
+try Chrono.nextOccurrence(month: 2, day: 29)        // 28 February in a common year
+```
+
+Days are counted between the starts of the two days, so 23:00 tonight to 01:00 tomorrow is
+one day and a clock change does not make it zero. A countdown that has ended goes negative
+rather than folding back to zero. Today counts as the next occurrence — a birthday today is
+zero days away, not a year — and a 29 February birthday falls on the 28th in a common year,
+which is the rule the `chrono age` verb has always used and is now the calendar's. Asking
+Foundation for `2027-02-29` would hand back 1 March, a different day and the wrong one.
+
 ## Tested
 
-95 tests, every one a question with a single right answer that multiplication gets
+125 tests, every one a question with a single right answer that multiplication gets
 wrong: the February clamp in a common and a leap year, 23- and 25-hour days across both
 London transitions, the order-dependence of `+1mo -1d`, week 53 of the year before,
 Friday plus ten working days, the whole relative grammar, every handover hour of the day,
-windows that cross midnight, and a weekly interval across both clock changes. Fixed dates and fixed
+windows that cross midnight, a weekly interval across both clock changes, every one of the
+124 template tokens against its example, 5 April belonging to the previous tax year, and
+29 February landing on the 28th. Fixed dates and fixed
 zones throughout — a suite that says "today" passes on the day it was written.
 
 ## Licence
