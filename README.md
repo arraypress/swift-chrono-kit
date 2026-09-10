@@ -107,6 +107,26 @@ Both spellings exist because people type the short one and speak the long one.
 `3 days` used to be a *failure* rather than three days — it ends in "s", which
 is the suffix for seconds, leaving "3 day" to parse as a number.
 
+## A length of time, in words
+
+```swift
+try Chrono.describe(duration: 183_600)                    // "2 days, 3 hours"
+try Chrono.describe(duration: 183_600, style: .short)     // "2d 3h"
+try Chrono.describe(duration: 183_600, style: .clock)     // "51:00:00"
+try Chrono.describe(duration: 183_600, style: .words)     // "two days and three hours"
+try Chrono.describe(duration: 90_061, units: 4)           // "1 day, 1 hour, 1 minute, 1 second"
+try Chrono.durationParts(90_061)                          // [1 day, 1 hour, 1 minute, 1 second]
+```
+
+The inverse of `Chrono.duration(_:)`: a number of seconds, said four ways. This is a
+length, not a calendar step — a day is 86,400 seconds here on purpose, and the calendar's
+view that a day across a clock change is 23 or 25 hours belongs to `span` and `shift`,
+which are asked about dates. Months and years are not units, because they have no length
+in seconds. `units` caps the parts shown, largest first, and the rest are dropped rather
+than rounded up. The clock folds days into hours and leaves the hours off under an hour
+unless three or more units are asked for. Words are spelled out up to twenty. A negative
+length is refused: a length is zero or more.
+
 ## Naming a zone
 
 `Chrono.zone(_:)` takes a zone the way somebody writes one, not only as an IANA
@@ -447,7 +467,7 @@ would quietly turn 31 Muharram into 1 Safar.
 
 ## Tested
 
-242 tests, every one a question with a single right answer that multiplication gets
+268 tests, every one a question with a single right answer that multiplication gets
 wrong: the February clamp in a common and a leap year, 23- and 25-hour days across both
 London transitions, the order-dependence of `+1mo -1d`, week 53 of the year before,
 Friday plus ten working days, the whole relative grammar, every handover hour of the day,
@@ -458,7 +478,7 @@ birthday on the 28th, Friday four to Monday ten being two working hours, eight-h
 across both clock changes, the first of Muharram, Rosh Hashanah, Chinese New Year and
 Nowruz on their published Gregorian days, every published UK and US holiday list for 2025
 and 2026, Christmas on a Saturday in both countries, and the RFC 5545 examples with the
-dates the RFC prints. Fixed dates and fixed
+dates the RFC prints, and a length of time in four spellings from the same seconds. Fixed dates and fixed
 zones throughout — a suite that says "today" passes on the day it was written.
 
 ## Licence
