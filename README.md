@@ -224,6 +224,75 @@ a list read from a file carries midnight and the date being tested rarely does. 
 that is not a date is refused rather than skipped: a typo silently moving a deadline is
 worse than a failure.
 
+## Public holidays, by rule
+
+```swift
+try Holidays.unitedKingdom(year: 2026)                          // England and Wales
+try Holidays.unitedKingdom(year: 2026, region: .scotland)
+try Holidays.unitedStatesFederal(year: 2026)
+try Holidays.easter(year: 2026)                                 // 2026-04-05
+Holidays.set(try Holidays.unitedKingdom(year: 2026))            // feeds isBusinessDay and friends
+```
+
+The dates move every year; the rules do not. "The last Monday in May", "the fourth
+Thursday in November", Easter by the computus, and "the next weekday when it lands on a
+weekend" describe every year at once, offline. Each `Holiday` carries the day it is and
+the day it is taken: Independence Day 2026 is a Saturday, observed on Friday 3 July; Boxing
+Day 2026 is a Saturday, taken on Monday 28 December. When Christmas and Boxing Day both fall
+on the weekend they take Monday and Tuesday, and when Christmas alone is a Sunday, Boxing Day
+keeps its Monday and Christmas takes the Tuesday — gov.uk's 2022 list, and the rule behind it.
+
+Three UK regions, because they differ: Scotland has 2 January and St Andrew's Day and no
+Easter Monday; Northern Ireland has St Patrick's Day and the Twelfth. The years the
+government declared something else — VE Day, the jubilees, a royal wedding, a state funeral,
+the coronation — are a short table applied automatically. Years before the rules were the law
+(1971 for the US, 1978 for the UK) are refused rather than guessed.
+
+## Recurrence
+
+```swift
+let rule = try RecurrenceRule(parsing: "second tuesday of every month")
+rule.rruleString                                                // "FREQ=MONTHLY;BYDAY=2TU"
+Chrono.occurrences(of: rule, from: start, limit: 6)
+Chrono.nextOccurrence(of: rule, from: start, after: Date())
+Chrono.isOccurrence(Date(), of: rule, from: start)
+
+try RecurrenceRule(parsing: "FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE,FR;COUNT=8;WKST=SU")
+try RecurrenceRule(parsing: "last working day of the quarter")  // no RRULE can say this; rruleString is nil
+try RecurrenceRule(parsing: """
+    RRULE:FREQ=WEEKLY;BYDAY=MO;COUNT=4
+    EXDATE;VALUE=DATE:20260112
+    RDATE:20260108T090000Z
+    """)
+rule.phrase                                                     // "the second Tuesday of every month"
+```
+
+RFC 5545's `RRULE`, the parts people use: daily, weekly, monthly and yearly with an
+interval; `BYDAY` with ordinals (`2TU`, `-1FR`); `BYMONTHDAY` counted from either end;
+`BYMONTH`; `BYSETPOS`; `COUNT` or `UNTIL`; `WKST`. The RFC's own examples are the tests —
+every Friday the 13th, the second-to-last weekday of the month, US election day, every
+other week on Monday, Wednesday and Friday — with the dates the RFC lists. Occurrences keep
+the start's wall-clock time across a clock change, the 31st skips short months, and a
+29 February start recurs on leap days only, as the RFC says. `BYHOUR`, `BYMINUTE`,
+`BYSECOND`, `BYWEEKNO`, `BYYEARDAY` and the sub-daily frequencies are refused, not
+half-done.
+
+Two things the RFC cannot say and people do: quarters, and working days. "The first
+working day of the month" and "the last working day of the quarter" are rules here, with
+the holiday set passed in; they have a phrase and no `rruleString`.
+
+`EXDATE` and `RDATE` read from a block and write back as `icsLines`. Exceptions match by
+calendar day, because a feed's exception carries the start's time and a caller's carries
+midnight; additions keep their time, take the start's when they are bare days, and never
+double an occurrence the rule already makes. In a phrase: "every monday except 25 december,
+plus 2026-01-02".
+
+The phrase grammar reads what people write — `every other week on friday`,
+`1st and 15th of every month`, `last day of the month`, `every year on 4 july`, `the first
+tuesday of november every year`, `every weekday, 10 times`, `every friday until
+2026-03-31` — and every rule describes itself in a canonical phrase that reads back to the
+same rule.
+
 ## Parts of a day
 
 ```swift
@@ -378,7 +447,7 @@ would quietly turn 31 Muharram into 1 Safar.
 
 ## Tested
 
-125 tests (+38 in this branch), every one a question with a single right answer that multiplication gets
+242 tests, every one a question with a single right answer that multiplication gets
 wrong: the February clamp in a common and a leap year, 23- and 25-hour days across both
 London transitions, the order-dependence of `+1mo -1d`, week 53 of the year before,
 Friday plus ten working days, the whole relative grammar, every handover hour of the day,
@@ -386,8 +455,10 @@ windows that cross midnight, a weekly interval across both clock changes, every 
 124 template tokens against its example, 5 April belonging to the previous tax year, and
 29 February landing on the 28th, the relative wording pinned string by string, a leap-day
 birthday on the 28th, Friday four to Monday ten being two working hours, eight-hour days
-across both clock changes, and the first of Muharram, Rosh Hashanah, Chinese New Year
-and Nowruz on their published Gregorian days. Fixed dates and fixed
+across both clock changes, the first of Muharram, Rosh Hashanah, Chinese New Year and
+Nowruz on their published Gregorian days, every published UK and US holiday list for 2025
+and 2026, Christmas on a Saturday in both countries, and the RFC 5545 examples with the
+dates the RFC prints. Fixed dates and fixed
 zones throughout — a suite that says "today" passes on the day it was written.
 
 ## Licence

@@ -5,14 +5,26 @@
 
 import Foundation
 
-/// A day of the week, numbered the ISO way: Monday is 1, Sunday is 7.
+/// A day of the week, numbered the way Foundation numbers it: Sunday is 1.
 ///
-/// Foundation numbers Sunday as 1, and half the bugs in schedule code are
-/// somebody remembering the other convention. Naming the days sidesteps
-/// both numbers; the ISO one is the `rawValue` because it is the one written
-/// down in a standard.
+/// Kept as Foundation's numbering rather than ISO's (Monday is 1) because
+/// every `Calendar` call in this package speaks Foundation's, and a type
+/// that silently renumbered would be a bug factory at each boundary. The
+/// ISO position is one property away.
 public enum Weekday: Int, CaseIterable, Sendable, Codable {
-    case monday = 1, tuesday, wednesday, thursday, friday, saturday, sunday
+    case sunday = 1, monday, tuesday, wednesday, thursday, friday, saturday
+
+    /// The two-letter code RFC 5545 uses: `MO`, `TU` … `SU`.
+    public var rruleCode: String { WeekdayNames.code(for: self) }
+
+    /// The English name, capitalised: `Monday`.
+    public var name: String { WeekdayNames.name(for: self) }
+
+    /// Monday is 1 and Sunday is 7, as ISO 8601 counts.
+    public var isoNumber: Int { rawValue == 1 ? 7 : rawValue - 1 }
+
+    /// Saturday or Sunday.
+    public var isWeekend: Bool { self == .saturday || self == .sunday }
 
     /// Monday to Friday.
     public static let weekdays: Set<Weekday> = [.monday, .tuesday, .wednesday, .thursday, .friday]
@@ -20,18 +32,30 @@ public enum Weekday: Int, CaseIterable, Sendable, Codable {
     /// Saturday and Sunday.
     public static let weekend: Set<Weekday> = [.saturday, .sunday]
 
-    /// The number Foundation's `.weekday` component uses: Sunday 1 … Saturday 7.
-    public var foundationWeekday: Int { self == .sunday ? 1 : rawValue + 1 }
+    /// The number Foundation's `.weekday` component uses — the raw value,
+    /// named so a call site says which convention it is handing over.
+    public var foundationWeekday: Int { rawValue }
 
-    /// The day for a Foundation `.weekday` value.
+    /// The day for a Foundation `.weekday` value, 1 (Sunday) to 7 (Saturday).
     public init?(foundationWeekday: Int) {
-        switch foundationWeekday {
-        case 1: self = .sunday
-        case 2...7: self = Weekday(rawValue: foundationWeekday - 1)!
-        default: return nil
-        }
+        self.init(rawValue: foundationWeekday)
     }
 
-    /// `Monday`.
-    public var name: String { String(describing: self).prefix(1).uppercased() + String(describing: self).dropFirst() }
+    /// The day for an ISO 8601 number, 1 (Monday) to 7 (Sunday).
+    public init?(isoNumber: Int) {
+        guard (1...7).contains(isoNumber) else { return nil }
+        self.init(rawValue: isoNumber == 7 ? 1 : isoNumber + 1)
+    }
+
+    /// A weekday from its RFC 5545 code, in either case.
+    public init?(rruleCode: String) {
+        guard let day = WeekdayNames.weekday(forCode: rruleCode) else { return nil }
+        self = day
+    }
+
+    /// A weekday from an English name or its first three letters, in either case.
+    public init?(name: String) {
+        guard let day = WeekdayNames.weekday(forName: name) else { return nil }
+        self = day
+    }
 }

@@ -123,8 +123,13 @@ final class BusinessHoursTests: XCTestCase {
     }
 
     func testWeekdaysAreNumberedTheISOWay() {
-        XCTAssertEqual(Weekday.monday.rawValue, 1)
-        XCTAssertEqual(Weekday.sunday.rawValue, 7)
+        // Foundation's numbering is the raw value; ISO's is one property away.
+        XCTAssertEqual(Weekday.sunday.rawValue, 1)
+        XCTAssertEqual(Weekday.monday.isoNumber, 1)
+        XCTAssertEqual(Weekday.sunday.isoNumber, 7)
+        XCTAssertEqual(Weekday(isoNumber: 7), .sunday)
+        XCTAssertEqual(Weekday(isoNumber: 1), .monday)
+        XCTAssertNil(Weekday(isoNumber: 8))
         XCTAssertEqual(Weekday.sunday.foundationWeekday, 1)
         XCTAssertEqual(Weekday.monday.foundationWeekday, 2)
         XCTAssertEqual(Weekday.saturday.foundationWeekday, 7)
