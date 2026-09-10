@@ -720,3 +720,288 @@ final class RangeTests: XCTestCase {
         XCTAssertThrowsError(try Chrono.range("last 0 days"))
     }
 }
+
+// MARK: - Parts of a day
+
+final class DayPartsTests: XCTestCase {
+
+    /// A wall-clock time on a fixed date, read in UTC so the hour is the hour.
+    private func clock(_ time: String, on date: String = "2026-09-03") throws -> Date {
+        try at("\(date)T\(time)")
+    }
+
+    // Time of day
+
+    func testTheDefaultBoundariesAtEveryHandover() throws {
+        try Chrono.inZone(utc) {
+            XCTAssertEqual(Chrono.timeOfDay(try clock("00:00")), .night)
+            XCTAssertEqual(Chrono.timeOfDay(try clock("04:59")), .night)
+            XCTAssertEqual(Chrono.timeOfDay(try clock("05:00")), .morning)
+            XCTAssertEqual(Chrono.timeOfDay(try clock("11:59")), .morning)
+            XCTAssertEqual(Chrono.timeOfDay(try clock("12:00")), .afternoon)
+            XCTAssertEqual(Chrono.timeOfDay(try clock("16:59")), .afternoon)
+            XCTAssertEqual(Chrono.timeOfDay(try clock("17:00")), .evening)
+            XCTAssertEqual(Chrono.timeOfDay(try clock("20:59")), .evening)
+            XCTAssertEqual(Chrono.timeOfDay(try clock("21:00")), .night)
+            XCTAssertEqual(Chrono.timeOfDay(try clock("23:59")), .night)
+        }
+    }
+
+    func testABakeryStartsItsMorningAtThree() throws {
+        let bakery = try TimeOfDay.Boundaries(morning: 3, afternoon: 11, evening: 15, night: 19)
+        try Chrono.inZone(utc) {
+            XCTAssertEqual(Chrono.timeOfDay(try clock("02:59"), boundaries: bakery), .night)
+            XCTAssertEqual(Chrono.timeOfDay(try clock("03:00"), boundaries: bakery), .morning)
+            XCTAssertEqual(Chrono.timeOfDay(try clock("11:00"), boundaries: bakery), .afternoon)
+            XCTAssertEqual(Chrono.timeOfDay(try clock("15:00"), boundaries: bakery), .evening)
+            XCTAssertEqual(Chrono.timeOfDay(try clock("19:00"), boundaries: bakery), .night)
+        }
+    }
+
+    func testBoundariesThatDoNotRiseAreRefused() {
+        // Equal, reversed, and off the clock face — none has one answer for every hour.
+        XCTAssertThrowsError(try TimeOfDay.Boundaries(morning: 5, afternoon: 5, evening: 17, night: 21))
+        XCTAssertThrowsError(try TimeOfDay.Boundaries(morning: 12, afternoon: 5, evening: 17, night: 21))
+        XCTAssertThrowsError(try TimeOfDay.Boundaries(morning: 5, afternoon: 12, evening: 17, night: 24))
+        XCTAssertThrowsError(try TimeOfDay.Boundaries(morning: -1, afternoon: 12, evening: 17, night: 21))
+        XCTAssertThrowsError(try TimeOfDay.Boundaries(morning: 0, afternoon: 1, evening: 2, night: 2))
+        XCTAssertThrowsError(try TimeOfDay.Boundaries(morning: 5, afternoon: 12, evening: 17, night: 21 + 24)) { error in
+            XCTAssertEqual(error as? ChronoError, .badBoundaries("hours must be 0–23, got [5, 12, 17, 45]"))
+            XCTAssertTrue(error.localizedDescription.contains("rising hours"))
+        }
+    }
+
+    func testTheEarliestAndLatestBoundariesThatFit() throws {
+        let edge = try TimeOfDay.Boundaries(morning: 0, afternoon: 1, evening: 2, night: 23)
+        try Chrono.inZone(utc) {
+            XCTAssertEqual(Chrono.timeOfDay(try clock("00:00"), boundaries: edge), .morning)
+            XCTAssertEqual(Chrono.timeOfDay(try clock("01:00"), boundaries: edge), .afternoon)
+            XCTAssertEqual(Chrono.timeOfDay(try clock("22:59"), boundaries: edge), .evening)
+            XCTAssertEqual(Chrono.timeOfDay(try clock("23:00"), boundaries: edge), .night)
+        }
+        XCTAssertEqual(TimeOfDay.Boundaries.default, try TimeOfDay.Boundaries(morning: 5, afternoon: 12, evening: 17, night: 21))
+    }
+
+    func testTheSameInstantIsMorningInLondonAndEveningInTokyo() throws {
+        // 09:00 UTC on 1 June: 10:00 BST, 18:00 JST.
+        let instant = try at("2026-06-01T09:00")
+        XCTAssertEqual(Chrono.inZone(london) { Chrono.timeOfDay(instant) }, .morning)
+        XCTAssertEqual(Chrono.inZone(tokyo) { Chrono.timeOfDay(instant) }, .evening)
+        XCTAssertEqual(Chrono.inZone(london) { Chrono.describe(instant).timeOfDay }, .morning)
+        XCTAssertEqual(Chrono.inZone(tokyo) { Chrono.describe(instant).timeOfDay }, .evening)
+    }
+
+    func testAcrossADaylightSavingChangeTheClockDecides() throws {
+        // 01:30 UTC on the morning London springs forward is 02:30 BST — the
+        // clock reads 02:30, so it is night, whatever the sun is doing.
+        let instant = try at("2026-03-29T01:30")
+        XCTAssertEqual(Chrono.inZone(london) { Chrono.timeOfDay(instant) }, .night)
+        XCTAssertEqual(Chrono.inZone(london) { Chrono.describe(instant).time }, "02:30:00")
+    }
+
+    func testWordsAndGreetings() {
+        XCTAssertEqual(TimeOfDay.morning.label, "Morning")
+        XCTAssertEqual(TimeOfDay.night.greeting, "Good night")
+        XCTAssertEqual(TimeOfDay.allCases.map(\.rawValue), ["morning", "afternoon", "evening", "night"])
+    }
+
+    func testPartsOfADayRoundTripThroughJSON() throws {
+        for part in TimeOfDay.allCases {
+            let data = try JSONEncoder().encode(part)
+            XCTAssertEqual(try JSONDecoder().decode(TimeOfDay.self, from: data), part)
+        }
+        let boundaries = try TimeOfDay.Boundaries(morning: 4, afternoon: 10, evening: 16, night: 22)
+        let data = try JSONEncoder().encode(boundaries)
+        XCTAssertEqual(try JSONDecoder().decode(TimeOfDay.Boundaries.self, from: data), boundaries)
+    }
+
+    // Clock times
+
+    func testAClockTimeIsCheckedOnTheWayIn() throws {
+        XCTAssertEqual(try ClockTime(hour: 0).minutesSinceMidnight, 0)
+        XCTAssertEqual(try ClockTime(hour: 23, minute: 59).minutesSinceMidnight, 1439)
+        XCTAssertThrowsError(try ClockTime(hour: 24))
+        XCTAssertThrowsError(try ClockTime(hour: -1))
+        XCTAssertThrowsError(try ClockTime(hour: 9, minute: 60))
+        XCTAssertThrowsError(try ClockTime(hour: 9, minute: -1)) { error in
+            XCTAssertEqual(error as? ChronoError, .badClockTime("09:-1"))
+            XCTAssertTrue(error.localizedDescription.contains("0–23"))
+        }
+    }
+
+    func testClockTimesCompareAndRoundTrip() throws {
+        let early = try ClockTime(hour: 9, minute: 30), late = try ClockTime(hour: 9, minute: 31)
+        XCTAssertLessThan(early, late)
+        XCTAssertEqual(max(early, late), late)
+        let data = try JSONEncoder().encode(late)
+        XCTAssertEqual(try JSONDecoder().decode(ClockTime.self, from: data), late)
+    }
+
+    // Windows
+
+    func testAWindowIsClosedAtTheStartAndOpenAtTheEnd() throws {
+        let nine = try ClockTime(hour: 9), five = try ClockTime(hour: 17)
+        try Chrono.inZone(utc) {
+            XCTAssertFalse(Chrono.isTime(try clock("08:59"), between: nine, and: five))
+            XCTAssertTrue(Chrono.isTime(try clock("09:00"), between: nine, and: five))
+            XCTAssertTrue(Chrono.isTime(try clock("16:59"), between: nine, and: five))
+            XCTAssertFalse(Chrono.isTime(try clock("17:00"), between: nine, and: five))
+        }
+    }
+
+    func testAWindowThatCrossesMidnightWraps() throws {
+        // "Between ten and six" at night is 22:00 → 05:59, through midnight.
+        let ten = try ClockTime(hour: 22), six = try ClockTime(hour: 6)
+        try Chrono.inZone(utc) {
+            XCTAssertTrue(Chrono.isTime(try clock("22:00"), between: ten, and: six))
+            XCTAssertTrue(Chrono.isTime(try clock("23:59"), between: ten, and: six))
+            XCTAssertTrue(Chrono.isTime(try clock("00:00"), between: ten, and: six))
+            XCTAssertTrue(Chrono.isTime(try clock("05:59"), between: ten, and: six))
+            XCTAssertFalse(Chrono.isTime(try clock("06:00"), between: ten, and: six))
+            XCTAssertFalse(Chrono.isTime(try clock("12:00"), between: ten, and: six))
+            XCTAssertFalse(Chrono.isTime(try clock("21:59"), between: ten, and: six))
+        }
+    }
+
+    func testAWindowThatStartsWhereItEndsIsTheWholeDay() throws {
+        let noon = try ClockTime(hour: 12)
+        try Chrono.inZone(utc) {
+            for time in ["00:00", "11:59", "12:00", "12:01", "23:59"] {
+                XCTAssertTrue(Chrono.isTime(try clock(time), between: noon, and: noon), time)
+            }
+        }
+    }
+
+    func testAOneMinuteWindow() throws {
+        let from = try ClockTime(hour: 9, minute: 30), to = try ClockTime(hour: 9, minute: 31)
+        try Chrono.inZone(utc) {
+            XCTAssertFalse(Chrono.isTime(try clock("09:29"), between: from, and: to))
+            XCTAssertTrue(Chrono.isTime(try clock("09:30"), between: from, and: to))
+            XCTAssertFalse(Chrono.isTime(try clock("09:31"), between: from, and: to))
+            // Seconds do not count: 09:30:59 is still 09:30.
+            XCTAssertTrue(Chrono.isTime(try at("2026-09-03T09:30:59"), between: from, and: to))
+        }
+    }
+
+    func testWindowsReadTheClockInTheZone() throws {
+        // 09:00 UTC is inside a 9–5 window in London (10:00) and outside it in Tokyo (18:00).
+        let nine = try ClockTime(hour: 9), five = try ClockTime(hour: 17)
+        let instant = try at("2026-06-01T09:00")
+        XCTAssertTrue(Chrono.inZone(london) { Chrono.isTime(instant, between: nine, and: five) })
+        XCTAssertFalse(Chrono.inZone(tokyo) { Chrono.isTime(instant, between: nine, and: five) })
+    }
+
+    func testDaytimeIsSixToEightByDefault() throws {
+        try Chrono.inZone(utc) {
+            XCTAssertFalse(try Chrono.isDaytime(try clock("05:59")))
+            XCTAssertTrue(try Chrono.isDaytime(try clock("06:00")))
+            XCTAssertTrue(try Chrono.isDaytime(try clock("19:59")))
+            XCTAssertFalse(try Chrono.isDaytime(try clock("20:00")))
+            XCTAssertTrue(try Chrono.isDaytime(try clock("03:00"), from: 0, to: 23))
+            XCTAssertFalse(try Chrono.isDaytime(try clock("23:30"), from: 0, to: 23))
+        }
+        XCTAssertThrowsError(try Chrono.isDaytime(Date(), from: 6, to: 24))
+        XCTAssertThrowsError(try Chrono.isDaytime(Date(), from: -6, to: 20))
+    }
+
+    // Interval days
+
+    func testEveryThirdDayFromTheFirst() throws {
+        try Chrono.inZone(utc) {
+            let anchor = try at("2026-01-01")
+            XCTAssertTrue(try Chrono.isEveryNthDay(try at("2026-01-01"), from: anchor, every: 3))
+            XCTAssertFalse(try Chrono.isEveryNthDay(try at("2026-01-02"), from: anchor, every: 3))
+            XCTAssertFalse(try Chrono.isEveryNthDay(try at("2026-01-03"), from: anchor, every: 3))
+            XCTAssertTrue(try Chrono.isEveryNthDay(try at("2026-01-04"), from: anchor, every: 3))
+            XCTAssertTrue(try Chrono.isEveryNthDay(try at("2026-01-31"), from: anchor, every: 3))
+            XCTAssertFalse(try Chrono.isEveryNthDay(try at("2026-02-01"), from: anchor, every: 3))
+        }
+    }
+
+    func testDaysBeforeTheAnchorAreNeverIntervalDays() throws {
+        try Chrono.inZone(utc) {
+            let anchor = try at("2026-01-04")
+            XCTAssertFalse(try Chrono.isEveryNthDay(try at("2026-01-01"), from: anchor, every: 3))
+            XCTAssertFalse(try Chrono.isEveryNthDay(try at("2025-12-29"), from: anchor, every: 1))
+        }
+    }
+
+    func testEveryDayIsEveryDay() throws {
+        try Chrono.inZone(utc) {
+            let anchor = try at("2026-01-01")
+            for day in ["2026-01-01", "2026-01-02", "2026-06-15", "2027-03-01"] {
+                XCTAssertTrue(try Chrono.isEveryNthDay(try at(day), from: anchor, every: 1), day)
+            }
+        }
+    }
+
+    func testTheTimeOfDayDoesNotMoveTheDay() throws {
+        // 23:59 on the anchor day and 00:01 the next morning are one day apart.
+        try Chrono.inZone(utc) {
+            let anchor = try at("2026-01-01T23:59")
+            XCTAssertTrue(try Chrono.isEveryNthDay(try at("2026-01-01T00:00"), from: anchor, every: 5))
+            XCTAssertFalse(try Chrono.isEveryNthDay(try at("2026-01-02T00:01"), from: anchor, every: 5))
+            XCTAssertTrue(try Chrono.isEveryNthDay(try at("2026-01-06T00:01"), from: anchor, every: 5))
+        }
+    }
+
+    func testAWeekAcrossTheClockChangeIsStillSevenDays() throws {
+        // London springs forward on 29 March 2026. Seven calendar days from
+        // the 22nd is the 29th, even though only 167 hours have passed.
+        try Chrono.inZone(london) {
+            let anchor = try Chrono.date("2026-03-22")
+            XCTAssertTrue(try Chrono.isEveryNthDay(try Chrono.date("2026-03-29"), from: anchor, every: 7))
+            XCTAssertTrue(try Chrono.isEveryNthDay(try Chrono.date("2026-04-05"), from: anchor, every: 7))
+            XCTAssertFalse(try Chrono.isEveryNthDay(try Chrono.date("2026-03-28"), from: anchor, every: 7))
+            // And back in October, when the day is 25 hours long.
+            let autumn = try Chrono.date("2026-10-18")
+            XCTAssertTrue(try Chrono.isEveryNthDay(try Chrono.date("2026-10-25"), from: autumn, every: 7))
+        }
+    }
+
+    func testLeapDaysAreCountedLikeAnyOther() throws {
+        try Chrono.inZone(utc) {
+            let anchor = try at("2028-02-28")
+            XCTAssertTrue(try Chrono.isEveryNthDay(try at("2028-03-01"), from: anchor, every: 2))
+            XCTAssertFalse(try Chrono.isEveryNthDay(try at("2028-03-02"), from: anchor, every: 2))
+            let year = try at("2026-01-01")
+            XCTAssertTrue(try Chrono.isEveryNthDay(try at("2027-01-01"), from: year, every: 365))
+            XCTAssertFalse(try Chrono.isEveryNthDay(try at("2029-01-01"), from: try at("2028-01-01"), every: 365))
+        }
+    }
+
+    func testAnIntervalBelowOneIsRefused() throws {
+        let anchor = Date()
+        XCTAssertThrowsError(try Chrono.isEveryNthDay(anchor, from: anchor, every: 0))
+        XCTAssertThrowsError(try Chrono.isEveryNthDay(anchor, from: anchor, every: -7)) { error in
+            XCTAssertEqual(error as? ChronoError, .badInterval(-7))
+            XCTAssertTrue(error.localizedDescription.contains("7 for weekly"))
+        }
+    }
+
+    // The arithmetic on its own
+
+    func testTheWindowArithmeticOnPlainMinutes() {
+        XCTAssertTrue(DayParts.contains(0, from: 0, to: 1))
+        XCTAssertFalse(DayParts.contains(1, from: 0, to: 1))
+        // 23:59 → 00:00 is one minute long: the end is open, so midnight is out.
+        XCTAssertTrue(DayParts.contains(1439, from: 1439, to: 0))
+        XCTAssertFalse(DayParts.contains(0, from: 1439, to: 0))
+        XCTAssertFalse(DayParts.contains(1438, from: 1439, to: 0))
+        XCTAssertTrue(DayParts.contains(720, from: 720, to: 720))
+    }
+
+    func testTheIntervalArithmeticOnPlainDays() {
+        XCTAssertTrue(DayParts.isOnInterval(dayOffset: 0, every: 3))
+        XCTAssertTrue(DayParts.isOnInterval(dayOffset: 9, every: 3))
+        XCTAssertFalse(DayParts.isOnInterval(dayOffset: 10, every: 3))
+        XCTAssertFalse(DayParts.isOnInterval(dayOffset: -3, every: 3))
+    }
+
+    func testThePartArithmeticOnPlainHours() {
+        for hour in 0..<24 {
+            let expected: TimeOfDay = hour < 5 ? .night : hour < 12 ? .morning : hour < 17 ? .afternoon : hour < 21 ? .evening : .night
+            XCTAssertEqual(DayParts.part(forHour: hour, boundaries: .default), expected, "\(hour)")
+        }
+    }
+}

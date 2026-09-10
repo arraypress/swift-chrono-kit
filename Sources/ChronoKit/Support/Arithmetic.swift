@@ -147,7 +147,8 @@ extension Chrono {
             isoWeekYear: parts.yearForWeekOfYear ?? 0,
             quarter: quarter,
             isDST: zone.isDaylightSavingTime(for: date),
-            isWeekend: weekdayNumber == 1 || weekdayNumber == 7
+            isWeekend: weekdayNumber == 1 || weekdayNumber == 7,
+            timeOfDay: DayParts.part(forHour: parts.hour ?? 0, boundaries: .default)
         )
     }
 }

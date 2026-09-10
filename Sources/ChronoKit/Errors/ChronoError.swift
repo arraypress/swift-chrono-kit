@@ -23,6 +23,15 @@ public enum ChronoError: Error, LocalizedError, Equatable, Sendable {
     /// A date fell outside what the calendar can represent.
     case outOfRange(String)
 
+    /// A day interval below one — "every zeroth day" names nothing.
+    case badInterval(Int)
+
+    /// Part-of-day hours that are outside 0–23 or do not rise in order.
+    case badBoundaries(String)
+
+    /// A clock time whose hour or minute is off the face.
+    case badClockTime(String)
+
     public var errorDescription: String? {
         switch self {
         case .badDate(let text):
@@ -44,6 +53,12 @@ public enum ChronoError: Error, LocalizedError, Equatable, Sendable {
             return "not a time zone: \(text)\nuse an IANA identifier like Europe/London or Asia/Tokyo"
         case .outOfRange(let what):
             return "outside the calendar's range: \(what)"
+        case .badInterval(let interval):
+            return "not a day interval: \(interval)\nuse 1 for every day, 2 for every other day, 7 for weekly"
+        case .badBoundaries(let what):
+            return "not a set of day-part boundaries: \(what)\nmorning, afternoon, evening and night must start at rising hours between 0 and 23"
+        case .badClockTime(let what):
+            return "not a clock time: \(what)\nhours run 0–23 and minutes 0–59"
         }
     }
 }

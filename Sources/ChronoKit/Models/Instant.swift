@@ -61,4 +61,8 @@ public struct Instant: Sendable, Hashable, Codable {
 
     /// Whether this falls on a Saturday or Sunday.
     public let isWeekend: Bool
+
+    /// Which part of the day it is by the clock: `morning`, `afternoon`,
+    /// `evening` or `night`, at the default ``TimeOfDay/Boundaries``.
+    public let timeOfDay: TimeOfDay
 }

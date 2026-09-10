@@ -224,12 +224,40 @@ a list read from a file carries midnight and the date being tested rarely does. 
 that is not a date is refused rather than skipped: a typo silently moving a deadline is
 worse than a failure.
 
+## Parts of a day
+
+```swift
+Chrono.timeOfDay(date)                                   // .morning — by the clock, in Chrono.timeZone
+Chrono.timeOfDay(date, boundaries: try .init(morning: 3, afternoon: 11, evening: 15, night: 19))
+Chrono.describe(date).timeOfDay                          // the same answer, on the Instant
+
+try Chrono.isDaytime(date)                               // 06:00 up to 20:00
+Chrono.isTime(date, between: try ClockTime(hour: 22), and: try ClockTime(hour: 6))
+                                                         // wraps through midnight
+try Chrono.isEveryNthDay(date, from: anchor, every: 3)   // the 1st, the 4th, the 7th
+```
+
+Morning, afternoon, evening and night are decided by hour boundaries you can set,
+not by the sun: a bakery's morning starts at three. They are read in
+`Chrono.timeZone`, so one instant is morning in London and evening in Tokyo, which
+is what a greeting needs. Sunrise is a different question — 03:43 in Reykjavik in
+June, 11:30 in December — and it takes a solar calculation and a coordinate; this
+package does not pretend to it.
+
+A window is closed at the start and open at the end, so `22:00` to `06:00` holds
+22:00 and 05:59 and not 06:00, and two windows that meet share no minute. When the
+end is not after the start the window wraps through midnight, and when the two are
+equal it is the whole day. Interval days are counted by the calendar: a week across
+the clock change is still seven days, days before the anchor are never interval
+days, and the anchor itself counts.
+
 ## Tested
 
-69 tests, every one a question with a single right answer that multiplication gets
+95 tests, every one a question with a single right answer that multiplication gets
 wrong: the February clamp in a common and a leap year, 23- and 25-hour days across both
 London transitions, the order-dependence of `+1mo -1d`, week 53 of the year before,
-Friday plus ten working days, and the whole relative grammar. Fixed dates and fixed
+Friday plus ten working days, the whole relative grammar, every handover hour of the day,
+windows that cross midnight, and a weekly interval across both clock changes. Fixed dates and fixed
 zones throughout — a suite that says "today" passes on the day it was written.
 
 ## Licence
