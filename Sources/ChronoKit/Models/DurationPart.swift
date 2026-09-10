@@ -20,6 +20,7 @@ public struct DurationPart: Sendable, Hashable, Codable {
     /// The unit, from week down to second.
     public let unit: CalendarUnit
 
+    /// One part, for a caller assembling a length by hand.
     public init(count: Int, unit: CalendarUnit) {
         self.count = count
         self.unit = unit
